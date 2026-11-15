@@ -31,6 +31,8 @@ data class UpdateStatus(
     /** Dernière version publiée (numéro de build) ; null = pas encore cherchée. */
     val available: Long? = null,
     val working: String? = null,
+    /** Avancement du téléchargement de l'APK (0..1) ; null = inconnu. */
+    val progress: Float? = null,
     val message: String? = null,
     /** APK téléchargé, prêt à installer. */
     val ready: File? = null,
@@ -105,7 +107,7 @@ class AppUpdater(
                 Log.w(LOG, "téléchargement", e)
                 "Échec : ${e.message}"
             }
-            status.value = status.value.copy(working = null, message = result)
+            status.value = status.value.copy(working = null, progress = null, message = result)
         }
     }
 
@@ -120,7 +122,27 @@ class AppUpdater(
     private suspend fun download(url: String, target: File) = withContext(Dispatchers.IO) {
         val response = http.get(url)
         check(response.status.isSuccess()) { "Téléchargement refusé (${response.status.value})" }
-        response.bodyAsChannel().toInputStream().use { input -> target.outputStream().use { input.copyTo(it) } }
+        val total = response.headers["Content-Length"]?.toLongOrNull() ?: 0L
+        var done = 0L
+        var next = 0L
+        response.bodyAsChannel().toInputStream().use { input ->
+            target.outputStream().use { out ->
+                val buffer = ByteArray(64 * 1024)
+                while (true) {
+                    val n = input.read(buffer)
+                    if (n < 0) break
+                    out.write(buffer, 0, n)
+                    done += n
+                    if (done >= next) {
+                        next = done + 500_000
+                        status.value = status.value.copy(
+                            working = "Téléchargement… ${done / 1_000_000} Mo" + if (total > 0) " sur ${total / 1_000_000} Mo" else "",
+                            progress = if (total > 0) (done.toFloat() / total).coerceIn(0f, 1f) else null,
+                        )
+                    }
+                }
+            }
+        }
         check(target.length() > 1_000_000) { "fichier incomplet" }
     }
 
@@ -153,7 +175,7 @@ class AppUpdater(
 
     private companion object {
         const val LOG = "AppUpdater"
-        const val REPO = "thibaultambert-jpg/Mes-courses"
+        const val REPO = "ThibaultAmbert/Mes-courses"
         const val TAG_NAME = "appli"
     }
 }

@@ -46,6 +46,8 @@ enum class Phase { IDLE, RECHERCHE, VALIDATION, ENVOI, TERMINE }
 
 data class CartState(
     val phase: Phase = Phase.IDLE,
+    /** Lignes envoyées au panier pendant la phase ENVOI (pour la barre « n / N ajoutés »). */
+    val sending: List<Int> = emptyList(),
     val source: String = "Liste de courses",
     val lines: List<CartLine> = emptyList(),
     val error: String? = null,
@@ -188,7 +190,10 @@ class CartViewModel(private val c: AppContainer) : ViewModel() {
     fun send() {
         job?.cancel()
         job = viewModelScope.launch {
-            _state.update { it.copy(phase = Phase.ENVOI, error = null) }
+            _state.update { st ->
+                val todo = st.lines.indices.filter { i -> st.lines[i].let { l -> l.included && l.product != null && l.status != LineStatus.AJOUTE } }
+                st.copy(phase = Phase.ENVOI, error = null, sending = todo)
+            }
             try {
                 val r = _state.value.retailer
                 CartPlanner.fill(c.backend(r), _state.value.lines, c.productMemory(r)).collect { (index, line) -> updateLine(index) { line } }

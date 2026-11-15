@@ -3,6 +3,7 @@
 package fr.mescourses.app.ui.settings
 
 import android.net.Uri
+import fr.mescourses.app.ui.components.BusyBar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -355,7 +356,7 @@ fun SettingsScreen(onBack: () -> Unit, onLogin: (Retailer) -> Unit, onChooseStor
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                if (catalog.working != null) LinearProgressIndicator(Modifier.fillMaxWidth())
+                if (catalog.working != null) BusyBar(Modifier.fillMaxWidth())
                 Button(onClick = onOpenCatalog) { Text("Choisir les bases à télécharger") }
                 OutlinedButton(onClick = { vm.c.catalogSync.updateNow() }, enabled = catalog.working == null && catalog.installed.isNotEmpty()) { Text("Chercher les nouveautés maintenant") }
                 Text(
@@ -375,7 +376,9 @@ fun SettingsScreen(onBack: () -> Unit, onLogin: (Retailer) -> Unit, onChooseStor
                 (update.working ?: update.message)?.let {
                     Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                if (update.working != null) LinearProgressIndicator(Modifier.fillMaxWidth())
+                if (update.working != null) update.progress?.let { p ->
+                    LinearProgressIndicator(progress = { p }, modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(50)))
+                } ?: BusyBar(Modifier.fillMaxWidth())
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (update.updateAvailable) Button(onClick = { vm.c.appUpdater.install() }, enabled = update.working == null) { Text("Mettre à jour") }
                     OutlinedButton(onClick = { vm.c.appUpdater.checkNow() }, enabled = update.working == null) { Text("Chercher une mise à jour") }

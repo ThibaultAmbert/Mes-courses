@@ -3,6 +3,8 @@
 package fr.mescourses.app.ui.menu
 
 import androidx.compose.animation.core.Animatable
+import fr.mescourses.app.ui.components.BusyBar
+import fr.mescourses.app.ui.components.Spinner
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -43,6 +45,9 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.PlainTooltip
+import androidx.compose.material.icons.filled.Autorenew
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
@@ -155,11 +160,18 @@ private fun logoUrl(domain: String) = "https://www.google.com/s2/favicons?domain
 
 @Composable
 internal fun SearchScreen(progress: String?, modelLoading: Boolean, onCancel: () -> Unit) {
-    val t = rememberInfiniteTransition(label = "orbit")
-    val outer by t.animateFloat(0f, 360f, infiniteRepeatable(tween(14000, easing = LinearEasing)), label = "outer")
-    val inner by t.animateFloat(360f, 0f, infiniteRepeatable(tween(22000, easing = LinearEasing)), label = "inner")
-    val pulse by t.animateFloat(1f, 1.18f, infiniteRepeatable(tween(1200), RepeatMode.Reverse), label = "pulse")
-    val bob by t.animateFloat(0f, -6f, infiniteRepeatable(tween(1200), RepeatMode.Reverse), label = "bob")
+    // Horloge d'affichage : l'animation tourne même quand Android réduit ou coupe les animations
+    // (économie d'énergie, accessibilité), ce qui figeait les transitions infinies.
+    var time by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    LaunchedEffect(Unit) {
+        val start = androidx.compose.runtime.withFrameNanos { it }
+        while (true) androidx.compose.runtime.withFrameNanos { now -> time = (now - start) / 1_000_000_000f }
+    }
+    val wave = (1f - cos(time * 2f * Math.PI.toFloat() / 2.4f)) / 2f
+    val outer = (time * 360f / 14f) % 360f
+    val inner = 360f - (time * 360f / 22f) % 360f
+    val pulse = 1f + 0.18f * wave
+    val bob = -6f * wave
     // Étapes réelles du moteur, déduites du message de progression.
     val stage = when {
         progress == null -> 0
@@ -168,6 +180,11 @@ internal fun SearchScreen(progress: String?, modelLoading: Boolean, onCancel: ()
         else -> 1
     }
     val steps = listOf("Lecture de tes envies", "Recettes de saison sur les sites", "Le chef choisit les plats", "Entrées et desserts")
+    // Avancement : l'étape, et dans l'étape le « (n/m) » que donne le moteur (sites interrogés, recettes lues).
+    val sub = progress?.let { Regex("""\((\d+)/(\d+)\)""").find(it) }
+        ?.let { m -> (m.groupValues[1].toFloat() / m.groupValues[2].toFloat().coerceAtLeast(1f)).coerceIn(0f, 1f) } ?: 0f
+    val target = when (stage) { 0 -> 0.03f; 1 -> 0.05f + 0.55f * sub; 2 -> 0.68f; else -> 0.86f + 0.1f * sub }
+    val fraction by animateFloatAsState(target, tween(500), label = "search")
     Column(Modifier.fillMaxSize().background(Cuisine.Peach)) {
         TunnelHeader(current = 2, onClose = onCancel, onDark = true)
         Box(Modifier.fillMaxWidth().height(320.dp), contentAlignment = Alignment.Center) {
@@ -184,6 +201,14 @@ internal fun SearchScreen(progress: String?, modelLoading: Boolean, onCancel: ()
         Column(Modifier.padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Text("Le chef cherche…", style = MaterialTheme.typography.headlineMedium, color = Cuisine.Coffee)
             Text(progress ?: "Marmiton, Jow, HelloFresh, 750g, Journal des Femmes, Picnic…", style = MaterialTheme.typography.bodyMedium, color = Cuisine.CoffeeMuted)
+            LinearProgressIndicator(
+                progress = { fraction },
+                modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(50)),
+                color = Cuisine.Tomato,
+                trackColor = Color(0xFFF6D7BC),
+                gapSize = 0.dp,
+                drawStopIndicator = {},
+            )
             if (modelLoading) ModelLoadingCard()
             steps.forEachIndexed { i, label -> StepLine(label, done = i < stage, active = i == stage) }
         }
@@ -234,7 +259,7 @@ private fun StepLine(label: String, done: Boolean, active: Boolean) {
             done -> Box(Modifier.size(24.dp).clip(CircleShape).background(Cuisine.Basil), contentAlignment = Alignment.Center) {
                 Icon(Icons.Filled.Check, null, tint = Cuisine.Coffee, modifier = Modifier.size(14.dp))
             }
-            active -> CircularProgressIndicator(Modifier.size(22.dp), color = Cuisine.Tomato, strokeWidth = 2.5.dp, trackColor = Color(0xFFEBC9AA))
+            active -> Spinner(Modifier.size(22.dp), color = Cuisine.Tomato, strokeWidth = 2.5.dp, trackColor = Color(0xFFEBC9AA))
             else -> Box(Modifier.size(22.dp).border(2.dp, Color(0xFFEBC9AA), CircleShape))
         }
         Text(label, style = MaterialTheme.typography.bodyLarge, color = if (done || active) Cuisine.Coffee else Color(0xFF8A6A55))
@@ -462,7 +487,7 @@ internal fun RecapScreen(
             Text("/$target", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 6.dp))
         }
         if (busy) {
-            LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 20.dp))
+            BusyBar(Modifier.fillMaxWidth().padding(horizontal = 20.dp))
             state.progress?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) }
         }
         LazyColumn(
@@ -597,14 +622,31 @@ private fun RecapRow(
                     Text("Enfants", style = MaterialTheme.typography.labelMedium)
                     RoundStepper(dish.portions.children, { onPortions(0, it - dish.portions.children) }, "Enfants", enabled = enabled, big = false, max = 20)
                 }
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    if (openable) TextButton(onClick = {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (openable) RoundAction(Icons.AutoMirrored.Filled.MenuBook, "Voir la recette", enabled = true) {
                         container.hintPortions(dish.recipeId, dish.sourceUrl, dish.portions)
                         dish.sourceUrl?.let(onOpen) ?: dish.recipeId?.let(onOpenRecipe)
-                    }) { Text("Voir la recette") }
-                    TextButton(onClick = onAnother, enabled = enabled) { Text("Autre recette") }
-                    TextButton(onClick = onInvent, enabled = enabled && ready) { Text("Le chef invente") }
+                    }
+                    RoundAction(Icons.Filled.Autorenew, "Autre recette", enabled = enabled, onClick = onAnother)
+                    RoundAction(Icons.Filled.AutoAwesome, "Le chef invente une recette à la place", enabled = enabled && ready, tint = MaterialTheme.colorScheme.primary, onClick = onInvent)
                 }
+            }
+        }
+    }
+}
+
+/** Action d'un plat en simple picto rond (le nom est lu par TalkBack et affiché à l'appui long). */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun RoundAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, enabled: Boolean, tint: Color = MaterialTheme.colorScheme.onSurface, onClick: () -> Unit) {
+    androidx.compose.material3.TooltipBox(
+        positionProvider = androidx.compose.material3.TooltipDefaults.rememberPlainTooltipPositionProvider(),
+        tooltip = { PlainTooltip { Text(label) } },
+        state = androidx.compose.material3.rememberTooltipState(),
+    ) {
+        Surface(onClick = onClick, enabled = enabled, shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.size(44.dp)) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(icon, label, Modifier.size(20.dp), tint = if (enabled) tint else MaterialTheme.colorScheme.outline)
             }
         }
     }
@@ -640,8 +682,8 @@ internal fun PreparationScreen(v: Validation, dishes: List<MenuDish>, modelLoadi
     val frac by animateFloatAsState(v.done.toFloat() / v.total.coerceAtLeast(1), tween(600), label = "prep")
     val finished = v.done >= v.total
     val steps = listOf(
-        "Portions calculées" to (v.done > 0),
-        "Ingrédients extraits des recettes" to finished,
+        "Portions calculées" to true,
+        "Ingrédients des plats · ${v.done.coerceAtMost(v.total)} / ${v.total}" to finished,
         "Liste de courses rangée par rayon" to false,
         "Recettes rangées dans ton livre" to false,
     )
