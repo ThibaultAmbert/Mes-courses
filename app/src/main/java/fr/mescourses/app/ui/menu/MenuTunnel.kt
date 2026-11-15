@@ -97,7 +97,6 @@ import fr.mescourses.core.season.Seasonality
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.draw.shadow
-import coil.compose.AsyncImage
 import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
@@ -155,8 +154,16 @@ private fun minutes(m: Int) = if (m >= 60) "${m / 60} h" + (if (m % 60 > 0) " ${
 private val SITES_OUTER = listOf("marmiton", "jow", "hellofresh", "cuisineaz")
 private val SITES_INNER = listOf("750g", "jdf", "picnic")
 
-/** Logo du site (icône publiée par le site, servie en PNG), lettres du nom en attendant ou si elle manque. */
-private fun logoUrl(domain: String) = "https://www.google.com/s2/favicons?domain=$domain&sz=128"
+/** Logos des sites, embarqués dans l'appli (pas de réseau pendant la recherche) ; sinon les initiales du site. */
+private val LOGOS = mapOf(
+    "marmiton" to fr.mescourses.app.R.drawable.logo_marmiton,
+    "jow" to fr.mescourses.app.R.drawable.logo_jow,
+    "hellofresh" to fr.mescourses.app.R.drawable.logo_hellofresh,
+    "cuisineaz" to fr.mescourses.app.R.drawable.logo_cuisineaz,
+    "750g" to fr.mescourses.app.R.drawable.logo_750g,
+    "jdf" to fr.mescourses.app.R.drawable.logo_jdf,
+    "picnic" to fr.mescourses.app.R.drawable.logo_picnic,
+)
 
 @Composable
 internal fun SearchScreen(progress: String?, modelLoading: Boolean, onCancel: () -> Unit) {
@@ -244,17 +251,15 @@ private fun OrbitBadge(siteId: String, radius: Int, size: Int, order: Int, angle
             .background(Color.White),
         contentAlignment = Alignment.Center,
     ) {
-        var loaded by remember { mutableStateOf(false) }
-        if (!loaded) Text(
+        val logo = LOGOS[siteId]
+        if (logo != null) androidx.compose.foundation.Image(
+            painter = androidx.compose.ui.res.painterResource(logo),
+            contentDescription = site.name,
+            modifier = Modifier.size((size * 0.62f).dp).clip(RoundedCornerShape(6.dp)),
+        ) else Text(
             site.name.split(' ').joinToString("") { it.take(1) }.take(3),
             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
             color = Cuisine.Coffee,
-        )
-        AsyncImage(
-            model = logoUrl(site.domain),
-            contentDescription = site.name,
-            onSuccess = { loaded = true },
-            modifier = Modifier.size((size * 0.62f).dp).clip(RoundedCornerShape(6.dp)),
         )
     }
 }
