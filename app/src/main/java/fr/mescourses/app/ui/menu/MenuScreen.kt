@@ -136,6 +136,15 @@ fun MenuScreen(onOpenSettings: () -> Unit, onOpenRecipe: (Long) -> Unit, onOpenS
     val overlap by vm.overlap.collectAsStateWithLifecycle()
     val insights by vm.insights.collectAsStateWithLifecycle()
     val preview by vm.shoppingPreview.collectAsStateWithLifecycle()
+    val planned by vm.planned.collectAsStateWithLifecycle()
+    val draftServings by vm.draftServings.collectAsStateWithLifecycle()
+    val bookServings by vm.bookServings.collectAsStateWithLifecycle()
+    // Les fenêtres (ajout, discussion) ne s'affichent que sur cet écran : quand une recette est ouverte par-dessus,
+    // elles disparaissent pour que le bouton Retour du téléphone revienne bien ici (et les rouvre).
+    val lifecycleState by androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsStateWithLifecycle()
+    val onTop = lifecycleState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
+    var pickerQuery by rememberSaveable { mutableStateOf("") }
+    LaunchedEffect(state.picker == null) { if (state.picker == null) pickerQuery = "" }
     // Demande de recette inventée : null = fermé ; -1 = plat en plus ; sinon l'index du plat à remplacer.
     var inventFor by remember { mutableStateOf<Int?>(null) }
     val snackbar = remember { SnackbarHostState() }
@@ -181,7 +190,7 @@ fun MenuScreen(onOpenSettings: () -> Unit, onOpenRecipe: (Long) -> Unit, onOpenS
                     onOpenSettings = onOpenSettings,
                     onOpenWeek = { vm.goTo(MenuStep.SEMAINE) },
                     onContinueDraft = vm::continueDraft,
-                    onCompleteDraft = { vm.continueDraft(); vm.fillMissing() },
+                    onCompleteDraft = vm::completeDraft,
                     onClearDraft = vm::clearDraft,
                     onNewMenu = vm::newMenu,
                 )
@@ -196,7 +205,8 @@ fun MenuScreen(onOpenSettings: () -> Unit, onOpenRecipe: (Long) -> Unit, onOpenS
                     onFinish = { passed -> vm.finishReview(passed) },
                 )
                 Screen.RECAP -> RecapScreen(
-                    dishes = dishes, targets = vm.targets(), state = state, ready = ready,
+                    dishes = dishes, targets = remember(planned, dishes) { vm.targets() }, state = state, ready = ready,
+                    servings = draftServings, childFactor = vm.childFactor(),
                     articles = preview?.items ?: insights.articles, shared = overlap.shared.size,
                     onBack = vm::goHome,
                     onAdjust = { chatOpen = true },
@@ -216,7 +226,7 @@ fun MenuScreen(onOpenSettings: () -> Unit, onOpenRecipe: (Long) -> Unit, onOpenS
                     PreparationScreen(v, dishes, modelLoading = state.model == ModelStatus.Loading, onBackground = { prepHidden = true; vm.goHome() })
                 }
                 Screen.WEEK -> WeekScreen(
-                    week = week, images = recipeImages,
+                    week = week, images = recipeImages, servings = bookServings, childFactor = vm.childFactor(),
                     stepsProgress = stepsProgress, pendingSteps = pendingSteps,
                     chefInstalled = state.model != ModelStatus.Absent,
                     onGenerate = vm::generateMissingSteps, onStopGenerating = vm::stopGeneratingSteps,
@@ -236,7 +246,7 @@ fun MenuScreen(onOpenSettings: () -> Unit, onOpenRecipe: (Long) -> Unit, onOpenS
         )
     }
 
-    if (chatOpen) {
+    if (chatOpen && onTop) {
         ChatSheet(
             chat = state.chat, busy = state.busy, ready = ready, modelLoading = state.model == ModelStatus.Loading,
             onSend = vm::send, onStop = vm::stop, onImprove = vm::improveSharing,
@@ -245,9 +255,10 @@ fun MenuScreen(onOpenSettings: () -> Unit, onOpenRecipe: (Long) -> Unit, onOpenS
         )
     }
 
-    state.picker?.let { recipes ->
+    state.picker?.takeIf { onTop }?.let { recipes ->
         AddDishSheet(
             recipes = recipes, busy = state.pickerBusy, course = state.pickerCourse, canInvent = ready,
+            query = pickerQuery, onQuery = { pickerQuery = it },
             onCourse = vm::setPickerCourse,
             onSearch = vm::searchPicker, onPick = { vm.addCandidate(it) }, onOpen = onOpenPreview,
             onInvent = { idea -> vm.closePicker(); vm.invent(null, idea) },
@@ -836,6 +847,8 @@ private fun AddDishSheet(
     busy: Boolean,
     course: Course?,
     canInvent: Boolean,
+    query: String,
+    onQuery: (String) -> Unit,
     onCourse: (Course?) -> Unit,
     onSearch: (String) -> Unit,
     onPick: (Candidate) -> Unit,
@@ -844,7 +857,6 @@ private fun AddDishSheet(
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    var query by remember { mutableStateOf("") }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, contentWindowInsets = { WindowInsets(0) }) {
         Column(Modifier.fillMaxWidth().imePadding().navigationBarsPadding().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Ajouter un plat", style = MaterialTheme.typography.titleLarge)
@@ -855,7 +867,7 @@ private fun AddDishSheet(
             )
             OutlinedTextField(
                 value = query,
-                onValueChange = { query = it },
+                onValueChange = onQuery,
                 modifier = Modifier.fillMaxWidth(),
                 placeholder = { Text("Une idée, un plat, un ingrédient…") },
                 shape = RoundedCornerShape(28.dp),

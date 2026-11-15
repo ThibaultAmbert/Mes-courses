@@ -43,6 +43,9 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material.icons.filled.RestaurantMenu
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -117,6 +120,24 @@ private fun originOf(d: MenuDish): String = listOfNotNull(
     if (d.sourceUrl == null && d.recipeId == null) "Recette du chef" else null,
     d.totalMinutes?.let { minutes(it) },
 ).joinToString(" · ")
+
+/** « Recette pour 6 pers., menu pour 2 » quand les deux ne correspondent pas : les quantités sont à vérifier. */
+internal fun servingsMismatch(servings: Int?, portions: fr.mescourses.core.model.Portions, childFactor: Double): String? {
+    if (servings == null || servings <= 0) return null
+    val people = portions.equivalent(childFactor)
+    if (kotlin.math.abs(people - servings) < 0.01) return null
+    val n = if (people % 1.0 == 0.0) people.toInt().toString() else people.toString().replace('.', ',')
+    return "Recette pour $servings pers., menu pour $n : vérifie les quantités"
+}
+
+/** Ligne d'alerte discrète (quantités à vérifier). */
+@Composable
+private fun WarningLine(text: String) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Icon(Icons.Filled.Warning, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.secondary)
+        Text(text, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    }
+}
 
 private fun minutes(m: Int) = if (m >= 60) "${m / 60} h" + (if (m % 60 > 0) " ${m % 60}" else "") else "$m min"
 
@@ -353,6 +374,8 @@ internal fun RecapScreen(
     targets: Triple<Int, Int, Int>,
     state: MenuUiState,
     ready: Boolean,
+    servings: Map<String, Int>,
+    childFactor: Double,
     articles: Int,
     shared: Int,
     onBack: () -> Unit,
@@ -375,10 +398,18 @@ internal fun RecapScreen(
     val target = targets.first + targets.second + targets.third
     val missing = MealGroup.entries.sumOf { g -> (g.target(targets) - groups[g].orEmpty().size).coerceAtLeast(0) }
     var expanded by rememberSaveable { mutableStateOf<String?>(null) }
+    var confirmRestart by remember { mutableStateOf(false) }
+    if (confirmRestart) {
+        AlertDialog(
+            onDismissRequest = { confirmRestart = false },
+            title = { Text("Tout recommencer ?") },
+            text = { Text("Les plats choisis seront retirés et tu reviendras aux paramètres.") },
+            confirmButton = { TextButton(onClick = { confirmRestart = false; onRestart() }) { Text("Recommencer") } },
+            dismissButton = { TextButton(onClick = { confirmRestart = false }) { Text("Annuler") } },
+        )
+    }
     Column(Modifier.fillMaxSize()) {
-        TunnelHeader(current = 2, onClose = onBack, back = true) {
-            IconButton(onClick = onAdjust) { Icon(Icons.Filled.AutoAwesome, "Ajuster avec le chef", tint = MaterialTheme.colorScheme.primary) }
-        }
+        TunnelHeader(current = 2, onClose = onBack, back = true)
         Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 8.dp), verticalAlignment = Alignment.Bottom) {
             Column(Modifier.weight(1f)) {
                 Text("Ta sélection", style = MaterialTheme.typography.headlineMedium)
@@ -429,6 +460,7 @@ internal fun RecapScreen(
                                 val key = "$i-${dish.title}"
                                 RecapRow(
                                     dish = dish, expanded = expanded == key, enabled = !busy, ready = ready,
+                                    warning = servingsMismatch(servings[dish.title], dish.portions, childFactor),
                                     onToggle = { expanded = if (expanded == key) null else key },
                                     onPortions = { a, c -> onPortions(i, a, c) },
                                     onAnother = { onAnother(i) }, onInvent = { onInvent(i) },
@@ -457,7 +489,14 @@ internal fun RecapScreen(
             Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).padding(start = 8.dp, end = 16.dp, top = 10.dp, bottom = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TextButton(onClick = onRestart, enabled = !busy) { Text("Tout recommencer") }
+            IconButton(onClick = { confirmRestart = true }, enabled = !busy) { Icon(Icons.Filled.Refresh, "Tout recommencer") }
+            Surface(onClick = onAdjust, enabled = !busy, shape = RoundedCornerShape(30.dp), color = MaterialTheme.colorScheme.surfaceContainerLowest, modifier = Modifier.height(60.dp)) {
+                Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.AutoAwesome, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.size(6.dp))
+                    Text("Ajuster", style = MaterialTheme.typography.labelLarge)
+                }
+            }
             Spacer(Modifier.size(8.dp))
             Surface(
                 onClick = onValidate, enabled = !busy && dishes.isNotEmpty(),
@@ -480,6 +519,7 @@ private fun RecapRow(
     expanded: Boolean,
     enabled: Boolean,
     ready: Boolean,
+    warning: String?,
     onToggle: () -> Unit,
     onPortions: (Int, Int) -> Unit,
     onAnother: () -> Unit,
@@ -500,6 +540,7 @@ private fun RecapRow(
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
+                warning?.let { WarningLine(it) }
             }
             IconButton(onClick = onRemove, enabled = enabled) { Icon(Icons.Filled.Close, "Retirer ce plat", Modifier.size(18.dp)) }
         }
@@ -610,6 +651,8 @@ internal fun PreparationScreen(v: Validation, dishes: List<MenuDish>, modelLoadi
 internal fun WeekScreen(
     week: List<PlannedMeal>,
     images: Map<Long, String>,
+    servings: Map<Long, Int>,
+    childFactor: Double,
     stepsProgress: Pair<Int, Int>?,
     pendingSteps: Int,
     chefInstalled: Boolean,
@@ -684,9 +727,11 @@ internal fun WeekScreen(
                 }
             }
             if (todo.isNotEmpty()) item { SectionLabel("À cuisiner · ${todo.size}") }
-            items(todo, key = { it.id }) { meal -> WeekRow(meal, images[meal.recipeId], onToggle, onOpenRecipe) }
+            items(todo, key = { it.id }) { meal ->
+                WeekRow(meal, images[meal.recipeId], servingsMismatch(servings[meal.recipeId], meal.portions, childFactor), onToggle, onOpenRecipe)
+            }
             if (done.isNotEmpty()) item { SectionLabel("Déjà cuisinés · ${done.size}") }
-            items(done, key = { it.id }) { meal -> WeekRow(meal, images[meal.recipeId], onToggle, onOpenRecipe) }
+            items(done, key = { it.id }) { meal -> WeekRow(meal, images[meal.recipeId], null, onToggle, onOpenRecipe) }
         }
     }
 }
@@ -702,7 +747,7 @@ private fun SectionLabel(text: String) {
 }
 
 @Composable
-private fun WeekRow(meal: PlannedMeal, image: String?, onToggle: (PlannedMeal) -> Unit, onOpenRecipe: (Long) -> Unit) {
+private fun WeekRow(meal: PlannedMeal, image: String?, warning: String?, onToggle: (PlannedMeal) -> Unit, onOpenRecipe: (Long) -> Unit) {
     val container = appContainer()
     Surface(
         onClick = { container.hintPortions(meal.recipeId, null, meal.portions); onOpenRecipe(meal.recipeId) },
@@ -723,6 +768,7 @@ private fun WeekRow(meal: PlannedMeal, image: String?, onToggle: (PlannedMeal) -
                     groupOf(meal.course).label.removeSuffix("s") + " · " + meal.portions.label(),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                warning?.let { WarningLine(it) }
             }
             Surface(
                 onClick = { onToggle(meal) },
