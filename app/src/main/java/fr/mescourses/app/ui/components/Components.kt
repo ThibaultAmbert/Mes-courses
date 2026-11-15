@@ -1,6 +1,13 @@
 package fr.mescourses.app.ui.components
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -38,6 +45,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -64,10 +72,11 @@ fun DishArt(
     modifier: Modifier = Modifier,
     emojiSize: Int = 44,
 ) {
-    val visual = DishVisuals.of(title, ingredients)
+    val visual = remember(title, ingredients) { DishVisuals.of(title, ingredients) }
     val dark = isSystemInDarkTheme()
+    val colors = remember(visual.category, dark) { gradientFor(visual.category, dark) }
     Box(
-        modifier.background(Brush.linearGradient(gradientFor(visual.category, dark))),
+        modifier.background(Brush.linearGradient(colors)),
         contentAlignment = Alignment.Center,
     ) {
         Text(visual.emoji, fontSize = emojiSize.sp)
@@ -322,7 +331,7 @@ fun LinkButton(text: String, onClick: () -> Unit) = TextButton(onClick = onClick
 @Composable
 fun ChefCard(title: String, text: String, modifier: Modifier = Modifier, emoji: String = "👨‍🍳") {
     Card(
-        modifier.fillMaxWidth(),
+        modifier.fillMaxWidth().animateContentSize(tween(200)),
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
     ) {
@@ -333,18 +342,29 @@ fun ChefCard(title: String, text: String, modifier: Modifier = Modifier, emoji: 
                 )
                 Text(emoji, fontSize = 16.sp)
             }
-            Column(Modifier.padding(start = 14.dp)) {
-                Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
-                Text(text, style = MaterialTheme.typography.bodySmall, maxLines = 3, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSecondaryContainer)
+            AnimatedContent(
+                targetState = title,
+                transitionSpec = { (fadeIn(tween(180)) togetherWith fadeOut(tween(120))).using(SizeTransform(clip = false)) },
+                label = "chefCardTitle",
+                modifier = Modifier.padding(start = 14.dp).weight(1f),
+            ) { currentTitle ->
+                Column {
+                    Text(currentTitle, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                    Text(text, style = MaterialTheme.typography.bodySmall, maxLines = 3, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                }
             }
         }
     }
 }
 
+/** Titre et sous-titre affichés pendant le chargement initial du modèle. */
+const val MODEL_LOADING_TITLE = "Le chef enfile son tablier…"
+const val MODEL_LOADING_TEXT = "L'assistant se prépare sur ton téléphone, quelques secondes."
+
 /** Le modèle se charge en mémoire. */
 @Composable
 fun ModelLoadingCard(modifier: Modifier = Modifier) =
-    ChefCard("Le chef enfile son tablier…", "L'assistant se prépare sur ton téléphone, quelques secondes.", modifier)
+    ChefCard(MODEL_LOADING_TITLE, MODEL_LOADING_TEXT, modifier)
 
 /** Nombre de personnes de la recette : vert s'il correspond au nombre choisi, rouge sinon. */
 @Composable

@@ -290,9 +290,9 @@ class VectorIndexCache {
 class RoomCatalogStore(private val dao: CatalogDao) : CatalogStore {
     private val vectorCache = VectorIndexCache()
 
-    override suspend fun count() = dao.count()
-    override suspend fun countBySite() = dao.countBySite().associate { it.siteId to it.n }
-    override suspend fun byUrl(url: String) = dao.byUrl(url)?.toEntry()
+    override suspend fun count() = withContext(Dispatchers.IO) { dao.count() }
+    override suspend fun countBySite() = withContext(Dispatchers.IO) { dao.countBySite().associate { it.siteId to it.n } }
+    override suspend fun byUrl(url: String) = withContext(Dispatchers.IO) { dao.byUrl(url)?.toEntry() }
 
     override suspend fun upsert(entries: List<CatalogEntry>) {
         if (entries.isEmpty()) return
@@ -362,14 +362,14 @@ class RoomCatalogStore(private val dao: CatalogDao) : CatalogStore {
         return searchHybrid(query, vector)
     }
 
-    private suspend fun searchSql(query: CatalogQuery): List<CatalogEntry> {
+    private suspend fun searchSql(query: CatalogQuery): List<CatalogEntry> = withContext(Dispatchers.IO) {
         val filter = whereClause(query, includeFts = true)
         val sql = StringBuilder("SELECT r.* FROM ").append(filter.from).append(filter.where)
         val args = ArrayList<Any>(filter.args.size + 2).apply { addAll(filter.args) }
         appendOrder(sql, args, query.seed)
         sql.append(" LIMIT ?")
         args += query.limit
-        return dao.search(SimpleSQLiteQuery(sql.toString(), args.toTypedArray())).map { it.toEntry() }
+        dao.search(SimpleSQLiteQuery(sql.toString(), args.toTypedArray())).map { it.toEntry() }
     }
 
     private suspend fun searchHybrid(query: CatalogQuery, vector: ByteArray): List<CatalogEntry> = withContext(Dispatchers.IO) {

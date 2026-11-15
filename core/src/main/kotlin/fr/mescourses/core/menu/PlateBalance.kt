@@ -38,8 +38,10 @@ object PlateBalance {
         "soupe", "jardiniere", "crudite",
     )
 
-    private val keys = mutableMapOf<String, String>()
-    private fun k(kw: String) = keys.getOrPut(kw) { " " + ShoppingListMerger.key(kw) + " " }
+    private val keys: Map<String, String> by lazy {
+        (proteins + starches + vegetables).associateWith { " " + ShoppingListMerger.key(it) + " " }
+    }
+    private fun k(kw: String) = keys[kw] ?: (" " + ShoppingListMerger.key(kw) + " ")
 
     /** Mot-clé présent comme mot entier (« ble » ne doit pas trouver « blette »). */
     private fun matches(text: String, keywords: List<String>): Boolean {

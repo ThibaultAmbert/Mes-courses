@@ -34,16 +34,20 @@ import fr.mescourses.core.model.MenuDish
 import fr.mescourses.core.model.PlannedMeal
 import fr.mescourses.core.model.Portions
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import java.util.concurrent.ConcurrentHashMap
 
 
 /** Ligne du fil de discussion : message de l'utilisateur, réponse du LLM, ou trace d'outil. */
@@ -121,7 +125,7 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
         val ids = plan.map { it.recipeId }.toSet()
         val w = c.stepsWriter()
         list.count { it.id in ids && w.needsSteps(it) }
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, 0)
 
     /** Avancement de l'écriture des étapes (faites, total) ; null = rien en cours. */
     val stepsProgress: StateFlow<Pair<Int, Int>?> = kotlinx.coroutines.flow.combine(c.chef.stepsQueue, c.chef.batchTotal) { queue, total ->
@@ -140,15 +144,18 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
     /** Image de chaque recette du livre (pour l'écran de la semaine). */
     val recipeImages: StateFlow<Map<Long, String>> = c.recipes.observeAll()
         .map { list -> list.mapNotNull { r -> r.imageUrl?.let { r.id to it } }.toMap() }
+        .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
     /** Ingrédients partagés / isolés du brouillon. */
     val overlap: StateFlow<IngredientOverlap.Report> = c.draft.observe()
         .map { IngredientOverlap.compute(it) }
+        .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.Eagerly, IngredientOverlap.Report(emptyList(), emptyList()))
 
     /** Saison et composition du brouillon. */
     val insights: StateFlow<MenuInsights> = c.draft.observe()
         .map { MenuInsights.of(it.filter { d -> d.isMain }, java.time.LocalDate.now().month) }
+        .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.Eagerly, MenuInsights(0, emptyList(), emptyList(), emptyMap()))
 
     /** Aperçu de la liste de courses du brouillon ; null tant qu'une recette n'est pas connue (plat inventé). */
@@ -160,13 +167,14 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
             }
             if (known.isNotEmpty() && known.size == dishes.size) ShoppingPreview.of(known, c.settings.current.pantryList()) else null
         }
+        .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     /** Recettes écartées par « Autre recette » (adresse ou titre) : elles ne reviennent pas dans ce menu. */
-    private val rejected = mutableSetOf<String>()
+    private val rejected: MutableSet<String> = ConcurrentHashMap.newKeySet()
     private var searchRound = 0
     /** Recettes déjà proposées par les menus précédents de cette session : « recommencer » en sort d'autres. */
-    private val proposed = mutableSetOf<String>()
+    private val proposed: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
     private fun titleKey(title: String) = fr.mescourses.core.shopping.ShoppingListMerger.key(title)
 
@@ -179,8 +187,9 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
     /** Recette à ne pas proposer : écartée, ou déjà au menu (même adresse ou même titre). */
     private fun blocked(c: Candidate, dishes: List<MenuDish>): Boolean {
         val title = titleKey(c.recipe.title)
-        return c.recipe.sourceUrl in rejected || rejected.any { titleKey(it) == title } ||
-            dishes.any { d -> (d.sourceUrl != null && d.sourceUrl == c.recipe.sourceUrl) || titleKey(d.title) == title }
+        val url = c.recipe.sourceUrl
+        return (url != null && url in rejected) || rejected.any { titleKey(it) == title } ||
+            dishes.any { d -> (d.sourceUrl != null && d.sourceUrl == url) || titleKey(d.title) == title }
     }
 
     private fun draw() = kotlin.random.Random.nextInt(1, 100_000)
@@ -188,6 +197,7 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
     /** Ids des recettes favorites, pour l'étoile sur les cartes. */
     val favoriteIds: StateFlow<Set<Long>> = c.recipes.observeAll()
         .map { l -> l.filter { it.favorite }.map { it.id }.toSet() }
+        .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
 
     private var job: Job? = null
@@ -347,7 +357,7 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
     private fun warmNext(wishes: MenuWishes = config()) {
         if (!c.model.status.value.available) return
         val previous = warmJob
-        warmJob = viewModelScope.launch {
+        warmJob = viewModelScope.launch(Dispatchers.Default) {
             previous?.cancelAndJoin()
             warmed = null
             try {
@@ -409,11 +419,11 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
     fun propose() {
         if (_state.value.busy) return
         val wishes = config()
-        job = viewModelScope.launch {
+        job = viewModelScope.launch(Dispatchers.Default) {
             cancelWarm(clearLastAnswer = true)
             c.draft.set(emptyList())
             step.value = MenuStep.PROPOSITION
-            _state.update { it.copy(chat = emptyList(), busy = true) }
+            _state.update { it.copy(chat = emptyList(), busy = true, progress = "Le chef cherche des recettes…") }
             exchanging = true
             rejected.clear()
             searchRound = 0
@@ -434,7 +444,6 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
                     val bySite = fr.mescourses.core.recipes.RecipeSearcher.interleave(list.groupBy { it.siteName }.values.toList())
                     val shortlist = (MenuComposer.compose(list, wishes, pairings = c.pairings) + bySite).distinct().take(SHORTLIST)
                     c.candidates.set(shortlist)
-                    if (shortlist.isNotEmpty()) c.candidates.set(c.menuSystemPrompt(wishes).shown)
                     when {
                         list.isNotEmpty() -> chooseFromCandidates(wishes, found?.failedSites.orEmpty()).also { addCourseDishes(wishes) }
                         _state.value.model.available -> {
@@ -540,7 +549,7 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
             say("L'assistant n'est pas chargé. Sans lui, je comprends : « ajoute 2 adultes au plat 1 », « retire le plat 3 », « ajoute un plat », « remplace le plat 2 ».", ok = false)
             return
         }
-        job = viewModelScope.launch {
+        job = viewModelScope.launch(Dispatchers.Default) {
             exchanging = true
             _state.update { it.copy(busy = true) }
             try {
@@ -709,7 +718,7 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
     fun openPicker() {
         _state.update { it.copy(picker = available(), pickerCourse = null) }
         if (available().size >= 4) return
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.Default) {
             _state.update { it.copy(pickerBusy = true) }
             val more = runCatching { c.candidateFinder.find(wishes(), round = ++searchRound, exclude = rejected, seed = draw()) }.getOrNull()
             c.candidates.add(more?.candidates.orEmpty())
@@ -721,7 +730,7 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
     fun setPickerCourse(course: Course?) {
         if (course == null) { openPicker(); return }
         _state.update { it.copy(pickerCourse = course, picker = emptyList(), pickerBusy = true) }
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.Default) {
             val taken = dishes.value.mapNotNull { it.sourceUrl }.toSet() + rejected
             val found = runCatching {
                 c.candidateFinder.forCourse(coursesOf(course), 12, wishes(), taken, draw(), if (course == Course.DESSERT) "dessert" else "entrée")
@@ -740,7 +749,7 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
             if (course == null) _state.update { it.copy(picker = available()) } else setPickerCourse(course)
             return
         }
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.Default) {
             _state.update { it.copy(pickerBusy = true) }
             val found = runCatching {
                 if (course == null) c.candidateFinder.search(words, wishes(), limit = 12, exclude = rejected)
@@ -766,7 +775,7 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
      */
     fun anotherRecipe(index: Int) {
         if (_state.value.busy) return
-        job = viewModelScope.launch {
+        job = viewModelScope.launch(Dispatchers.Default) {
             exchanging = true
             _state.update { it.copy(busy = true) }
             try {
@@ -835,7 +844,7 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
         val pool = c.candidates.all()
         if (pool.isEmpty()) { send(MenuPrompt.IMPROVE_SHARING); return }
         if (_state.value.busy) return
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.Default) {
             val dishes = c.draft.get()
             val wishes = c.currentWishes ?: config()
             // Seuls les plats principaux se mutualisent : les entrées et desserts restent en place.
@@ -882,18 +891,22 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
                             Log.d(TAG, "1er token menu en ${SystemClock.elapsedRealtime() - startedAt} ms")
                         }
                         answer.append(ev.text)
+                        val cleanedToken = ev.text.replace(modelMarkers, "")
                         _state.update { s ->
-                            val chat = s.chat.toMutableList()
+                            val chat = s.chat
                             val last = chat.lastOrNull()
                             if (last != null && !last.fromUser && !last.tool) {
-                                val updated = (last.text + ev.text).replace(modelMarkers, "")
-                                if (updated.isEmpty()) chat.removeAt(chat.lastIndex)
-                                else chat[chat.lastIndex] = last.copy(text = updated)
+                                val updated = (last.text + cleanedToken).replace(modelMarkers, "")
+                                if (updated == last.text) return@update s
+                                val next = chat.toMutableList()
+                                if (updated.isEmpty()) next.removeAt(next.lastIndex)
+                                else next[next.lastIndex] = last.copy(text = updated)
+                                s.copy(chat = next)
+                            } else if (cleanedToken.isEmpty()) {
+                                s
                             } else {
-                                val cleaned = ev.text.replace(modelMarkers, "")
-                                if (cleaned.isNotEmpty()) chat += ChatLine(false, cleaned)
+                                s.copy(chat = chat + ChatLine(false, cleanedToken))
                             }
-                            s.copy(chat = chat)
                         }
                     }
                     is ChatEvent.ToolCall -> Unit

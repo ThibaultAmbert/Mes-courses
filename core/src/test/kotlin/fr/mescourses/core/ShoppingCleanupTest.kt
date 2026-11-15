@@ -29,6 +29,10 @@ class ShoppingCleanupTest {
         ).forEach { assertTrue(Pantry.isStaple(it), it) }
         listOf("lait de coco", "sauce tomate", "beurre de cacahuète", "poivron rouge", "persil", "selle d'agneau", "pâte feuilletée pur beurre")
             .forEach { assertFalse(Pantry.isStaple(it), it) }
+        val customMatcher = Pantry.matcher(listOf("Riz", "Pâtes"))
+        assertTrue(customMatcher.isStaple("riz basmati"))
+        assertFalse(customMatcher.isStaple("sel"))
+        assertEquals(Pantry.keys(Pantry.DEFAULTS), Pantry.keys(Pantry.DEFAULTS.toList()))
     }
 
     @Test fun aliment_seul() {

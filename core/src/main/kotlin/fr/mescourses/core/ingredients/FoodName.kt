@@ -46,13 +46,20 @@ object FoodName {
         "jambon cuit", "pois casses", "tomates concassees", "tomate concassee", "chair a saucisse",
     )
 
+    private val nfdMarks = Regex("\\p{M}+")
+    private val nonAlnumSpace = Regex("[^a-z0-9 ]")
+    private val multiSpace = Regex("\\s+")
+    private val parens = Regex("""\s*\([^)]*\)""")
+    private val splitAlternates = Regex("""(?i)\s+(pour|ou|\+|afin)\s+|\s*\+\s*|\s*/\s*""")
+    private val trailingConnector = Regex("""\s+(et|ou|de|d['’])\s*$""")
+
     private fun key(s: String) = java.text.Normalizer.normalize(s.lowercase(), java.text.Normalizer.Form.NFD)
-        .replace(Regex("\\p{M}+"), "").replace(Regex("[^a-z0-9 ]"), " ").replace(Regex("\\s+"), " ").trim()
+        .replace(nfdMarks, "").replace(nonAlnumSpace, " ").replace(multiSpace, " ").trim()
 
     fun clean(name: String): String {
-        var s = name.replace(Regex("""\s*\([^)]*\)"""), " ").substringBefore(',').trim()
+        var s = name.replace(parens, " ").substringBefore(',').trim()
         // Compléments et alternatives : « … pour la décoration », « beurre ou margarine », « sucre + 1 pincée »…
-        s = s.split(Regex("""(?i)\s+(pour|ou|\+|afin)\s+|\s*\+\s*|\s*/\s*""")).first().trim()
+        s = s.split(splitAlternates).first().trim()
         // Retire les préfixes successifs : « quelques brins de » → « brins de » → « de » → aliment.
         var previous: String
         do {
@@ -62,8 +69,8 @@ object FoodName {
         s = s.replace(qualifiers, " ")
         if (products.none { key(s).startsWith(it) }) s = s.replace(preparations, " ")
         s = s
-            .replace(Regex("""\s+(et|ou|de|d['’])\s*$"""), "")
-            .replace(Regex("\\s+"), " ")
+            .replace(trailingConnector, "")
+            .replace(multiSpace, " ")
             .trim(' ', ',', '.', ';', '-')
         return s.ifEmpty { name.trim() }
     }

@@ -11,10 +11,14 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -107,6 +111,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fr.mescourses.app.llm.ModelStatus
 import fr.mescourses.app.ui.components.ChefCard
+import fr.mescourses.app.ui.components.MODEL_LOADING_TEXT
+import fr.mescourses.app.ui.components.MODEL_LOADING_TITLE
 import fr.mescourses.app.ui.components.ModelLoadingCard
 import fr.mescourses.app.work.Validation
 import fr.mescourses.app.ui.common.ScreenScaffold
@@ -174,35 +180,46 @@ fun MenuScreen(onOpenSettings: () -> Unit, onOpenRecipe: (Long) -> Unit, onOpenS
         snackbar = snackbar,
         bottomBar = {
             // Le bouton reste sous le pouce, quel que soit l'endroit du formulaire.
-            if (step == MenuStep.REGLAGES && state.validation == null) {
-                BottomActionBar {
-                    Button(
-                        onClick = { askNotifications(); vm.propose() },
-                        enabled = !state.busy,
-                        modifier = Modifier.weight(1f).height(52.dp),
-                    ) {
-                        Icon(Icons.Filled.AutoAwesome, null)
-                        Spacer(Modifier.size(8.dp))
-                        Text("Composer mon menu de " + listOfNotNull(
-                            state.starters.takeIf { it > 0 }?.let { "$it entrée${if (it > 1) "s" else ""}" },
-                            "${state.meals} plat${if (state.meals > 1) "s" else ""}",
-                            state.desserts.takeIf { it > 0 }?.let { "$it dessert${if (it > 1) "s" else ""}" },
-                        ).joinToString(", "), style = MaterialTheme.typography.titleSmall)
-                    }
-                }
+            val bottomMode = when {
+                state.validation != null -> null
+                step == MenuStep.REGLAGES -> MenuStep.REGLAGES
+                step == MenuStep.PROPOSITION && dishes.isNotEmpty() -> MenuStep.PROPOSITION
+                else -> null
             }
-            if (step == MenuStep.PROPOSITION && dishes.isNotEmpty() && state.validation == null) {
-                BottomActionBar {
-                    OutlinedButton(onClick = { chatOpen = true }) {
-                        Icon(Icons.Filled.ChatBubbleOutline, null, Modifier.size(18.dp))
-                        Spacer(Modifier.size(6.dp))
-                        Text("Ajuster")
+            AnimatedContent(
+                targetState = bottomMode,
+                transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(140)) },
+                label = "bottomBar",
+            ) { mode ->
+                when (mode) {
+                    MenuStep.REGLAGES -> BottomActionBar {
+                        Button(
+                            onClick = { askNotifications(); vm.propose() },
+                            enabled = !state.busy,
+                            modifier = Modifier.weight(1f).height(52.dp),
+                        ) {
+                            Icon(Icons.Filled.AutoAwesome, null)
+                            Spacer(Modifier.size(8.dp))
+                            Text("Composer mon menu de " + listOfNotNull(
+                                state.starters.takeIf { it > 0 }?.let { "$it entrée${if (it > 1) "s" else ""}" },
+                                "${state.meals} plat${if (state.meals > 1) "s" else ""}",
+                                state.desserts.takeIf { it > 0 }?.let { "$it dessert${if (it > 1) "s" else ""}" },
+                            ).joinToString(", "), style = MaterialTheme.typography.titleSmall)
+                        }
                     }
-                    Button(onClick = { askNotifications(); vm.validate() }, enabled = !state.busy, modifier = Modifier.weight(1f)) {
-                        Icon(Icons.Filled.Check, null, Modifier.size(18.dp))
-                        Spacer(Modifier.size(6.dp))
-                        Text("Valider le menu")
+                    MenuStep.PROPOSITION -> BottomActionBar {
+                        OutlinedButton(onClick = { chatOpen = true }) {
+                            Icon(Icons.Filled.ChatBubbleOutline, null, Modifier.size(18.dp))
+                            Spacer(Modifier.size(6.dp))
+                            Text("Ajuster")
+                        }
+                        Button(onClick = { askNotifications(); vm.validate() }, enabled = !state.busy, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Filled.Check, null, Modifier.size(18.dp))
+                            Spacer(Modifier.size(6.dp))
+                            Text("Valider le menu")
+                        }
                     }
+                    null, MenuStep.SEMAINE -> {}
                 }
             }
         },
@@ -221,6 +238,8 @@ fun MenuScreen(onOpenSettings: () -> Unit, onOpenRecipe: (Long) -> Unit, onOpenS
                 },
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
             )
+            var lastValidation by remember { mutableStateOf(state.validation) }
+            if (state.validation != null) lastValidation = state.validation
             AnimatedContent(
                 targetState = if (state.validation != null) null else step,
                 transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(120)) },
@@ -228,7 +247,7 @@ fun MenuScreen(onOpenSettings: () -> Unit, onOpenRecipe: (Long) -> Unit, onOpenS
                 modifier = Modifier.weight(1f),
             ) { target ->
                 when (target) {
-                    null -> state.validation?.let { ValidationProgress(it, dishes, state.model == ModelStatus.Loading) }
+                    null -> (state.validation ?: lastValidation)?.let { ValidationProgress(it, dishes, state.model == ModelStatus.Loading) }
                     MenuStep.REGLAGES -> SettingsStep(vm, state, onOpenSettings)
                     MenuStep.PROPOSITION -> ProposalStep(
                         dishes = dishes, favorites = favorites, overlap = overlap, insights = insights, preview = preview,
@@ -509,22 +528,38 @@ private fun ProposalStep(
     val sharedNames = remember(overlap) { overlap.shared.map { ShoppingListMerger.key(it.name) }.toSet() }
     val listState = rememberLazyListState()
     val expanded = rememberGroupStates("menu")
-    Column(Modifier.fillMaxSize()) {
-    // Toujours visible en haut, même quand on fait défiler les plats.
-    ChefStatus(
-        modelLoading = state.model == ModelStatus.Loading,
-        busy = state.busy,
-        lastText = state.chat.lastOrNull { !it.fromUser && !it.tool }?.text,
-        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
-        progress = state.progress,
-    )
-    LazyColumn(
-        state = listState,
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-        modifier = Modifier.weight(1f),
-    ) {
-        if (dishes.isEmpty() && state.busy) return@LazyColumn
+    val emptyLoading = dishes.isEmpty() && (state.busy || state.model == ModelStatus.Loading)
+    AnimatedContent(
+        targetState = emptyLoading,
+        transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(140)) },
+        label = "proposalContent",
+        modifier = Modifier.fillMaxSize(),
+    ) { isInitialLoading ->
+        if (isInitialLoading) {
+            Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+                ChefStatus(
+                    modelLoading = state.model == ModelStatus.Loading,
+                    busy = state.busy,
+                    lastText = null,
+                    progress = state.progress,
+                )
+            }
+        } else {
+            Column(Modifier.fillMaxSize()) {
+                // Toujours visible en haut, même quand on fait défiler les plats.
+                ChefStatus(
+                    modelLoading = state.model == ModelStatus.Loading,
+                    busy = state.busy,
+                    lastText = null,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
+                    progress = state.progress,
+                )
+                LazyColumn(
+                    state = listState,
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    modifier = Modifier.weight(1f),
+                ) {
         item {
             val mains = dishes.filter { it.isMain }
             val balanced = mains.count { PlateBalance.missing(dishBalanceTexts(it)).isEmpty() }
@@ -582,7 +617,9 @@ private fun ProposalStep(
         item {
             TextButton(onClick = onClear, enabled = !state.busy, modifier = Modifier.fillMaxWidth()) { Text("Tout effacer et recommencer") }
         }
-    }
+                }
+            }
+        }
     }
 }
 
@@ -636,19 +673,25 @@ private fun <T> LazyListScope.courseSection(
     if (expanded) items(list, key = key) { content(it) }
 }
 
-@Composable
-private fun ThinkingCard(lastText: String?, modifier: Modifier = Modifier, progress: String? = null) = ChefCard(
-    progress ?: "Le chef réfléchit…",
-    lastText?.takeLast(140)?.trim()?.ifBlank { null } ?: "Saison, équilibre, ingrédients partagés : il compose ton menu.",
-    modifier,
-)
-
-/** Carte épinglée en haut tant que le chef travaille : chargement du modèle, sinon réflexion. */
+/** Carte épinglée tant que le chef travaille : chargement du modèle, sinon réflexion/étape en cours. */
 @Composable
 private fun ChefStatus(modelLoading: Boolean, busy: Boolean, lastText: String?, modifier: Modifier = Modifier, progress: String? = null) {
-    when {
-        modelLoading -> ModelLoadingCard(modifier)
-        busy -> ThinkingCard(lastText, modifier, progress)
+    AnimatedVisibility(
+        visible = modelLoading || busy,
+        enter = fadeIn(tween(180)) + expandVertically(tween(200)),
+        exit = fadeOut(tween(150)) + shrinkVertically(tween(180)),
+        label = "chefStatus",
+    ) {
+        val title = when {
+            modelLoading -> MODEL_LOADING_TITLE
+            else -> progress ?: "Le chef réfléchit…"
+        }
+        val subtitle = when {
+            modelLoading -> MODEL_LOADING_TEXT
+            else -> lastText?.takeLast(140)?.trim()?.ifBlank { null }
+                ?: "Saison, équilibre, ingrédients partagés : il compose ton menu."
+        }
+        ChefCard(title, subtitle, modifier)
     }
 }
 
@@ -824,14 +867,25 @@ private fun SharingCard(report: IngredientOverlap.Report, insights: MenuInsights
 
 @Composable
 private fun ValidationProgress(v: Validation, dishes: List<MenuDish>, modelLoading: Boolean) {
-    val progress by animateFloatAsState(v.done.toFloat() / v.total.coerceAtLeast(1), label = "progress")
-    val current = dishes.firstOrNull { it.title == v.current }
+    val progress by animateFloatAsState(
+        targetValue = v.done.toFloat() / v.total.coerceAtLeast(1),
+        animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
+        label = "progress",
+    )
+    val current = remember(dishes, v.current) { dishes.firstOrNull { it.title == v.current } }
     Column(
         Modifier.fillMaxSize().padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        if (modelLoading) ModelLoadingCard(Modifier.padding(bottom = 24.dp))
+        AnimatedVisibility(
+            visible = modelLoading,
+            enter = fadeIn(tween(180)) + expandVertically(tween(200)),
+            exit = fadeOut(tween(150)) + shrinkVertically(tween(180)),
+            label = "validationModelLoading",
+        ) {
+            ModelLoadingCard(Modifier.padding(bottom = 24.dp))
+        }
         DishArt(
             v.current.ifBlank { "Menu" }, current?.mainIngredients.orEmpty(),
             modifier = Modifier.size(160.dp).clip(RoundedCornerShape(40.dp)), emojiSize = 72,

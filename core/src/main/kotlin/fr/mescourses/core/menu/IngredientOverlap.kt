@@ -26,10 +26,13 @@ object IngredientOverlap {
     /** Clé de regroupement : « Poireaux » = « poireau », « crème fraîche épaisse » ≈ « crème fraîche ». */
     fun key(name: String): String = IngredientMapper.mapKey(rawKey(name))
 
+    private val qualifiers = Regex("""\b(bio|frais|fraiche|fraiches|gros|grosse|petit|petite|epaisse|liquide|entier|entiere)\b""")
+    private val multiSpace = Regex("\\s+")
+
     /** Clé calculée, avant les regroupements du mapping canonique. */
     fun rawKey(name: String): String = ShoppingListMerger.key(name)
-        .replace(Regex("""\b(bio|frais|fraiche|fraiches|gros|grosse|petit|petite|epaisse|liquide|entier|entiere)\b"""), " ")
-        .replace(Regex("\\s+"), " ").trim()
+        .replace(qualifiers, " ")
+        .replace(multiSpace, " ").trim()
 
     fun compute(dishes: List<MenuDish>): Report {
         val byKey = LinkedHashMap<String, Pair<String, MutableSet<Int>>>()

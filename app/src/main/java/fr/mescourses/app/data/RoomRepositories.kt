@@ -15,8 +15,11 @@ import fr.mescourses.core.repository.MenuDraftRepository
 import fr.mescourses.core.repository.MenuHistoryRepository
 import fr.mescourses.core.repository.RecipeRepository
 import fr.mescourses.core.repository.ShoppingRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
@@ -62,29 +65,29 @@ fun Recipe.toEntity() = RecipeEntity(
 )
 
 class RoomRecipeRepository(private val dao: RecipeDao) : RecipeRepository {
-    override fun observeAll(): Flow<List<Recipe>> = dao.observeAll().map { l -> l.map { it.toModel() } }
-    fun observe(id: Long): Flow<Recipe?> = dao.observe(id).map { it?.toModel() }
-    override suspend fun all(): List<Recipe> = dao.all().map { it.toModel() }
-    override suspend fun get(id: Long): Recipe? = dao.get(id)?.toModel()
+    override fun observeAll(): Flow<List<Recipe>> = dao.observeAll().map { l -> l.map { it.toModel() } }.flowOn(Dispatchers.IO)
+    fun observe(id: Long): Flow<Recipe?> = dao.observe(id).map { it?.toModel() }.flowOn(Dispatchers.IO)
+    override suspend fun all(): List<Recipe> = withContext(Dispatchers.IO) { dao.all().map { it.toModel() } }
+    override suspend fun get(id: Long): Recipe? = withContext(Dispatchers.IO) { dao.get(id)?.toModel() }
 
     /** Recherche insensible aux accents dans le titre, les tags et les ingrédients. */
-    override suspend fun search(query: String): List<Recipe> {
+    override suspend fun search(query: String): List<Recipe> = withContext(Dispatchers.IO) {
         val words = query.lowercase().stripAccents().split(' ').filter { it.isNotBlank() }
         val all = dao.all().map { it.toModel() }
-        if (words.isEmpty()) return all
-        return all.filter { r ->
+        if (words.isEmpty()) return@withContext all
+        all.filter { r ->
             val haystack = (r.title + " " + r.tags.joinToString(" ") + " " + r.ingredients.joinToString(" ") { it.name })
                 .lowercase().stripAccents()
             words.all { it in haystack }
         }
     }
 
-    override suspend fun save(recipe: Recipe): Long {
+    override suspend fun save(recipe: Recipe): Long = withContext(Dispatchers.IO) {
         val entity = recipe.toEntity()
-        return if (recipe.id == 0L) dao.upsert(entity) else { dao.upsert(entity); recipe.id }
+        if (recipe.id == 0L) dao.upsert(entity) else { dao.upsert(entity); recipe.id }
     }
 
-    override suspend fun delete(id: Long) = dao.delete(id)
+    override suspend fun delete(id: Long) = withContext(Dispatchers.IO) { dao.delete(id) }
 }
 
 private fun PlannedMealEntity.toModel() =
@@ -112,30 +115,34 @@ class RoomMenuDraftRepository(private val dao: MenuDraftDao) : MenuDraftReposito
         sourceUrl, imageUrl, totalMinutes, invented, course.toCourse(),
     )
 
-    override fun observe(): Flow<List<MenuDish>> = dao.observe().map { l -> l.map { it.toModel() } }
-    override suspend fun get(): List<MenuDish> = dao.all().map { it.toModel() }
-    override suspend fun set(dishes: List<MenuDish>) = dao.replace(
-        // Entrées, plats puis desserts : l'ordre de la liste est celui de l'écran, et les numéros (« plat 3 ») y correspondent.
-        dishes.sortedBy { it.courseRank }.mapIndexed { i, d ->
-            MenuDraftEntity(
-                i, d.title, d.description, d.portions.adults, d.portions.children, d.recipeId,
-                json.encodeToString(stringsSer, d.mainIngredients),
-                d.sourceUrl, d.imageUrl, d.totalMinutes, d.invented, d.course?.name,
-            )
-        },
-    )
+    override fun observe(): Flow<List<MenuDish>> = dao.observe().map { l -> l.map { it.toModel() } }.flowOn(Dispatchers.IO)
+    override suspend fun get(): List<MenuDish> = withContext(Dispatchers.IO) { dao.all().map { it.toModel() } }
+    override suspend fun set(dishes: List<MenuDish>) = withContext(Dispatchers.IO) {
+        dao.replace(
+            // Entrées, plats puis desserts : l'ordre de la liste est celui de l'écran, et les numéros (« plat 3 ») y correspondent.
+            dishes.sortedBy { it.courseRank }.mapIndexed { i, d ->
+                MenuDraftEntity(
+                    i, d.title, d.description, d.portions.adults, d.portions.children, d.recipeId,
+                    json.encodeToString(stringsSer, d.mainIngredients),
+                    d.sourceUrl, d.imageUrl, d.totalMinutes, d.invented, d.course?.name,
+                )
+            },
+        )
+    }
 }
 
 class RoomMenuHistoryRepository(private val dao: MenuHistoryDao) : MenuHistoryRepository {
-    override suspend fun all(): List<MenuHistoryEntry> = dao.all().map {
-        MenuHistoryEntry(
-            it.id, it.date, it.title, it.sourceUrl, it.kind,
-            runCatching { json.decodeFromString(stringsSer, it.mainIngredients) }.getOrDefault(emptyList()),
-        )
+    override suspend fun all(): List<MenuHistoryEntry> = withContext(Dispatchers.IO) {
+        dao.all().map {
+            MenuHistoryEntry(
+                it.id, it.date, it.title, it.sourceUrl, it.kind,
+                runCatching { json.decodeFromString(stringsSer, it.mainIngredients) }.getOrDefault(emptyList()),
+            )
+        }
     }
 
-    override suspend fun add(entries: List<MenuHistoryEntry>) {
-        if (entries.isEmpty()) return
+    override suspend fun add(entries: List<MenuHistoryEntry>) = withContext(Dispatchers.IO) {
+        if (entries.isEmpty()) return@withContext
         dao.insertAll(entries.map { MenuHistoryEntity(0, it.date, it.title, it.sourceUrl, it.kind, json.encodeToString(stringsSer, it.mainIngredients)) })
         // Un an suffit largement (la variété se joue sur quelques semaines).
         dao.deleteBefore(java.time.LocalDate.now().minusYears(1).toString())

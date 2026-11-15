@@ -33,9 +33,11 @@ object ShoppingListMerger {
         else -> Normalized(quantity, unit, Dimension.AUTRE)
     }
 
+    private val nonAlnumSpace = Regex("[^a-z0-9 ]")
+
     /** Clé de regroupement : minuscules, sans accents, mots au singulier. */
     fun key(name: String): String = name.lowercase().stripAccents()
-        .replace(Regex("[^a-z0-9 ]"), " ")
+        .replace(nonAlnumSpace, " ")
         .split(' ')
         .filter { it.isNotBlank() }
         .joinToString(" ") { singular(it) }
@@ -61,22 +63,25 @@ object ShoppingListMerger {
      * Le libellé de l'article reste le nom nettoyé ([FoodName.clean]) : le mapping n'agit que sur les clés
      * (fusion à `merge()` via [key], rayon, recherche drive), jamais sur ce que l'utilisateur lit.
      */
-    fun fromRecipe(recipe: Recipe, portions: Double, pantry: List<String> = Pantry.DEFAULTS): List<ShoppingItem> = scale(recipe, portions)
-        .map(IngredientParser::repair)
-        .filterNot { Pantry.isStaple(it.name, pantry) }
-        .filterNot {
-            IngredientMapper.mapLine(it.raw)?.status == IngredientMapper.Status.IGNORE ||
-                IngredientMapper.status(IngredientOverlap.key(it.name)) == IngredientMapper.Status.IGNORE
-        }
-        .map {
-        val small = it.unit in smallMeasures
-        ShoppingItem(
-            name = FoodName.clean(it.name),
-            quantity = if (small) 1.0 else it.quantity,
-            unit = if (small) PIECE else it.unit,
-            source = ItemSource.RECETTE,
-            origin = recipe.title,
-        )
+    fun fromRecipe(recipe: Recipe, portions: Double, pantry: List<String> = Pantry.DEFAULTS): List<ShoppingItem> {
+        val staple = Pantry.matcher(pantry)
+        return scale(recipe, portions)
+            .map(IngredientParser::repair)
+            .filterNot { staple.isStaple(it.name) }
+            .filterNot {
+                IngredientMapper.mapLine(it.raw)?.status == IngredientMapper.Status.IGNORE ||
+                    IngredientMapper.status(IngredientOverlap.key(it.name)) == IngredientMapper.Status.IGNORE
+            }
+            .map {
+                val small = it.unit in smallMeasures
+                ShoppingItem(
+                    name = FoodName.clean(it.name),
+                    quantity = if (small) 1.0 else it.quantity,
+                    unit = if (small) PIECE else it.unit,
+                    source = ItemSource.RECETTE,
+                    origin = recipe.title,
+                )
+            }
     }
 
     /** Une pièce à acheter : ne s'additionne pas (deux recettes avec de l'ail → une tête d'ail). */

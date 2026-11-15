@@ -1,11 +1,13 @@
 package fr.mescourses.app.work
 
 import android.content.Context
+import android.os.Looper
 import fr.mescourses.app.llm.ModelController
 import fr.mescourses.core.menu.MenuValidator
 import fr.mescourses.core.menu.RecipeStepsWriter
 import fr.mescourses.core.repository.RecipeRepository
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.update
 import fr.mescourses.core.menu.ValidationResult
@@ -64,7 +66,13 @@ class ChefWork(
         }
     }
 
-    fun progress(text: String) = MenuWorkService.update(context, text)
+    fun progress(text: String) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            scope.launch(Dispatchers.IO) { MenuWorkService.update(context, text) }
+        } else {
+            MenuWorkService.update(context, text)
+        }
+    }
 
     val validating: Boolean get() = validationJob?.isActive == true
 
