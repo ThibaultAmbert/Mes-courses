@@ -15,9 +15,11 @@ class CatalogRationalizerTest {
     private fun e(
         n: Int = 1, site: String = "marmiton", title: String = "Gratin $n", image: String? = "https://img/$n.jpg",
         ingredients: Int = 4, total: Int? = 30, rating: Double? = 4.8, count: Int? = 50, course: Course = Course.PLAT,
+        category: String? = if (course == Course.AUTRE) null else course.label,
     ) = CatalogEntry(
         url = "https://www.$site.fr/recettes/r-$n.html", siteId = site, title = title, imageUrl = image,
-        ingredients = List(ingredients) { "ingrédient $it" }, totalMinutes = total, rating = rating, ratingCount = count, course = course,
+        ingredients = List(ingredients) { "ingrédient $it" }, totalMinutes = total, rating = rating, ratingCount = count,
+        category = category, course = course,
     )
 
     private val cfg = RationalizationConfig()
@@ -56,7 +58,14 @@ class CatalogRationalizerTest {
 
     @Test fun cours_exclu() {
         assertEquals(Reason.COURSE, reason(e(course = Course.BOISSON)))
+        assertEquals(Reason.COURSE, reason(e(course = Course.AUTRE)))
         assertNull(reason(e(course = Course.BOISSON), cfg.copy(excludedCourses = emptySet())))
+        // Une ancienne fiche marquée PLAT mais sans catégorie reconnue est écartée après recalcul du type.
+        val stale = e(n = 9, title = "Velouté de potimarron", course = Course.PLAT, category = null)
+        assertNull(CatalogRationalizer.filterSingle(stale))
+        val res = CatalogRationalizer.process(listOf(e(1), stale))
+        assertEquals(listOf(e(1).url), res.kept.map { it.url })
+        assertEquals(1, res.report.sites["marmiton"]!!.rejected[Reason.COURSE])
     }
 
     @Test fun trop_peu_d_ingredients() {

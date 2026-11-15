@@ -1,5 +1,6 @@
 package fr.mescourses.core.recipes
 
+import fr.mescourses.core.catalog.Course
 import fr.mescourses.core.ingredients.IngredientParser
 import fr.mescourses.core.model.Recipe
 import kotlinx.serialization.json.Json
@@ -10,6 +11,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import org.jsoup.Jsoup
+import org.jsoup.nodes.Document
 
 /**
  * Extrait une recette d'une page web grâce aux données structurées schema.org/Recipe (JSON-LD),
@@ -28,8 +30,8 @@ object RecipeJsonLdExtractor {
     private val flightRecipe = Regex("""\{\\"@context\\":\\"https://schema\.org\\",\\"@type\\":\\"Recipe\\"(?:[^"\\]++|\\.)*+""")
 
     /** Contenu des balises JSON-LD de la page, puis des fiches Recipe du flux Next.js. */
-    private fun jsonLdBlocks(html: String): List<String> {
-        val scripts = Jsoup.parse(html).select("script[type=application/ld+json]").map { it.data() }
+    private fun jsonLdBlocks(html: String, doc: Document = Jsoup.parse(html)): List<String> {
+        val scripts = doc.select("script[type=application/ld+json]").map { it.data() }
         val flight = flightRecipe.findAll(html).mapNotNull { m ->
             val literal = m.value
             // La fin de la chaîne JavaScript est le guillemet non échappé ; on la décode comme une chaîne JSON.
@@ -58,21 +60,125 @@ object RecipeJsonLdExtractor {
     )
 
     fun extractDetails(html: String, sourceUrl: String? = null): Details? {
-        for (block in jsonLdBlocks(html)) {
-            val element = runCatching { json.parseToJsonElement(block.trim()) }.getOrNull() ?: continue
-            val node = findRecipe(element) ?: continue
-            val rating = node["aggregateRating"] as? JsonObject
-            val recipe = toRecipe(node, sourceUrl)
-            return Details(
-                recipe = recipe,
-                rating = rating?.string("ratingValue")?.replace(',', '.')?.toDoubleOrNull(),
-                ratingCount = (rating?.string("ratingCount") ?: rating?.string("reviewCount"))?.toDoubleOrNull()?.toInt(),
-                categories = strings(node["recipeCategory"]).map(::clean).filter { it.isNotBlank() },
-                totalMinutes = node.string("totalTime")?.let(::parseIsoDurationMinutes)
-                    ?: listOfNotNull(recipe.prepMinutes, recipe.cookMinutes).takeIf { it.isNotEmpty() }?.sum(),
-            )
+        val doc = Jsoup.parse(html)
+        val parsed = jsonLdBlocks(html, doc).mapNotNull { block ->
+            runCatching { json.parseToJsonElement(block.trim()) }.getOrNull()
         }
-        return null
+        val node = parsed.firstNotNullOfOrNull { findRecipe(it) } ?: return null
+        val rating = node["aggregateRating"] as? JsonObject
+        val recipe = toRecipe(node, sourceUrl)
+        val rawCategories = strings(node["recipeCategory"]).map(::clean).filter { it.isNotBlank() }
+        val categories = if (Course.of(rawCategories) != Course.AUTRE) {
+            rawCategories
+        } else {
+            (fallbackCategories(parsed, doc, recipe.title, sourceUrl) + rawCategories).distinct()
+        }
+        return Details(
+            recipe = recipe,
+            rating = rating?.string("ratingValue")?.replace(',', '.')?.toDoubleOrNull(),
+            ratingCount = (rating?.string("ratingCount") ?: rating?.string("reviewCount"))?.toDoubleOrNull()?.toInt(),
+            categories = categories,
+            totalMinutes = node.string("totalTime")?.let(::parseIsoDurationMinutes)
+                ?: listOfNotNull(recipe.prepMinutes, recipe.cookMinutes).takeIf { it.isNotEmpty() }?.sum(),
+        )
+    }
+
+    private fun fallbackCategories(
+        parsedJsonLd: List<JsonElement>, doc: Document, recipeTitle: String, sourceUrl: String?,
+    ): List<String> {
+        val fromJsonLdBreadcrumbs = parsedJsonLd.flatMap { breadcrumbCategories(it, recipeTitle, sourceUrl) }
+        val fromHtmlBreadcrumbs = htmlBreadcrumbCategories(doc, recipeTitle, sourceUrl)
+        val fromScripts = embeddedCategories(doc)
+        return (fromJsonLdBreadcrumbs + fromHtmlBreadcrumbs + fromScripts)
+            .filter { Course.of(listOf(it)) != Course.AUTRE }
+            .distinct()
+    }
+
+    private fun breadcrumbCategories(element: JsonElement, recipeTitle: String, sourceUrl: String?): List<String> {
+        val lists = ArrayList<JsonObject>()
+        collectType(element, "BreadcrumbList", lists)
+        val out = ArrayList<String>()
+        for (list in lists) {
+            val items = list["itemListElement"] as? JsonArray ?: continue
+            for ((idx, item) in items.withIndex()) {
+                val obj = item as? JsonObject
+                val rawName = obj?.string("name")
+                    ?: (obj?.get("item") as? JsonObject)?.string("name")
+                    ?: (item as? JsonPrimitive)?.contentOrNull
+                    ?: continue
+                val name = clean(rawName)
+                val itemUrl = (obj?.get("item") as? JsonPrimitive)?.contentOrNull
+                    ?: (obj?.get("item") as? JsonObject)?.string("@id")
+                    ?: (obj?.get("item") as? JsonObject)?.string("url")
+                val isLastItem = idx == items.lastIndex && (items.size >= 3 || (items.size >= 2 && itemUrl == null))
+                if (name.isBlank() || isIgnoredCrumb(name, itemUrl, recipeTitle, sourceUrl) || isLastItem) continue
+                out += name
+            }
+        }
+        return out
+    }
+
+    private fun htmlBreadcrumbCategories(doc: Document, recipeTitle: String, sourceUrl: String?): List<String> =
+        doc.select("nav[aria-label*=breadcrumb i] a[href], .breadcrumb a[href], .breadcrumbs a[href], [itemtype*=BreadcrumbList] a[href]")
+            .mapNotNull { link ->
+                val text = clean(link.text())
+                val href = link.attr("href").takeIf { it.isNotBlank() }
+                text.takeUnless { it.isBlank() || isIgnoredCrumb(it, href, recipeTitle, sourceUrl) }
+            }
+
+    private val flightCategoryProp =
+        Regex("""\\?"(?:recipeCategory|course|dishType|mealType|category)\\?"\s*:\s*\\?"((?:[^"\\]|\\u[0-9a-fA-F]{4}|\\/){2,48})\\?"""")
+    private val flightCategoryArray =
+        Regex("""\\?"(?:recipeCategory|categories|courses|dishTypes|mealTypes)\\?"\s*:\s*\[([^\]]{2,200})\]""")
+    private val flightStringItem =
+        Regex("""\\?"((?:[^"\\]|\\u[0-9a-fA-F]{4}|\\/){2,48})\\?"""")
+
+    private fun embeddedCategories(doc: Document): List<String> {
+        val scripts = doc.select("script").filter {
+            val data = it.data()
+            "self.__next_f" in data || it.id() == "__NEXT_DATA__"
+        }
+        if (scripts.isEmpty()) return emptyList()
+        val out = ArrayList<String>()
+        for (script in scripts) {
+            val data = script.data()
+            for (m in flightCategoryProp.findAll(data)) {
+                decodeJsonString(m.groupValues[1])?.let { out += it }
+            }
+            for (m in flightCategoryArray.findAll(data)) {
+                for (item in flightStringItem.findAll(m.groupValues[1])) {
+                    decodeJsonString(item.groupValues[1])?.let { out += it }
+                }
+            }
+        }
+        return out
+    }
+
+    private fun decodeJsonString(raw: String): String? =
+        runCatching { (json.parseToJsonElement("\"$raw\"") as? JsonPrimitive)?.contentOrNull }
+            .getOrNull()?.trim()?.takeIf { it.isNotBlank() && '<' !in it && !it.startsWith("http") }
+
+    private fun isIgnoredCrumb(name: String, itemUrl: String?, recipeTitle: String, sourceUrl: String?): Boolean {
+        val low = name.lowercase()
+        if (low in setOf("accueil", "recettes", "recette", "home")) return true
+        if (low == recipeTitle.lowercase()) return true
+        if (itemUrl != null && sourceUrl != null) {
+            val p1 = itemUrl.substringAfter("://").substringBefore('?').substringBefore('#').trimEnd('/')
+            val p2 = sourceUrl.substringAfter("://").substringBefore('?').substringBefore('#').trimEnd('/')
+            if (p1 == p2 || (itemUrl.startsWith("/") && p2.endsWith(itemUrl.trimEnd('/')))) return true
+        }
+        return false
+    }
+
+    private fun collectType(element: JsonElement, type: String, out: MutableList<JsonObject>) {
+        when (element) {
+            is JsonArray -> element.forEach { collectType(it, type, out) }
+            is JsonObject -> {
+                if (hasType(element, type)) out += element
+                element.values.forEach { if (it is JsonObject || it is JsonArray) collectType(it, type, out) }
+            }
+            else -> Unit
+        }
     }
 
     private fun findRecipe(element: JsonElement): JsonObject? = when (element) {
@@ -86,9 +192,11 @@ object RecipeJsonLdExtractor {
         else -> null
     }
 
-    private fun isRecipe(obj: JsonObject): Boolean = when (val type = obj["@type"]) {
-        is JsonPrimitive -> type.contentOrNull.equals("Recipe", ignoreCase = true)
-        is JsonArray -> type.any { (it as? JsonPrimitive)?.contentOrNull.equals("Recipe", ignoreCase = true) }
+    private fun isRecipe(obj: JsonObject): Boolean = hasType(obj, "Recipe")
+
+    private fun hasType(obj: JsonObject, expected: String): Boolean = when (val type = obj["@type"]) {
+        is JsonPrimitive -> type.contentOrNull.equals(expected, ignoreCase = true)
+        is JsonArray -> type.any { (it as? JsonPrimitive)?.contentOrNull.equals(expected, ignoreCase = true) }
         else -> false
     }
 

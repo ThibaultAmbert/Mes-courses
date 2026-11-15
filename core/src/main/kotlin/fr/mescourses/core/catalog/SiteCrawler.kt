@@ -134,6 +134,7 @@ class SiteCrawler(private val fetch: suspend (url: String) -> String) {
         for (listing in source.listings) {
             // Une rubrique s'arrête à la première page qui n'apporte aucune recette nouvelle pour elle (ou qui n'existe pas).
             val inListing = HashSet<String>()
+            val listingCat = listingCategory(listing)
             for (n in 1..listingPages) {
                 val html = try {
                     fetch(if (n == 1) listing else "$listing?page=$n")
@@ -143,7 +144,7 @@ class SiteCrawler(private val fetch: suspend (url: String) -> String) {
                 }
                 val links = links(html, listing).filter { source.recipeUrl.containsMatchIn(it) }
                 if (links.count { inListing.add(it) } == 0) break
-                links.forEach { pages.putIfAbsent(it, Sitemap.Page(it, null)) }
+                links.forEach { pages.putIfAbsent(it, Sitemap.Page(it, null, listingCat)) }
             }
         }
         while (queue.isNotEmpty() && seen.size < maxSitemaps) {
@@ -177,6 +178,34 @@ class SiteCrawler(private val fetch: suspend (url: String) -> String) {
     /** Lit une fiche ; null si la page n'a pas de recette lisible ou si elle n'a rien à faire au catalogue. */
     suspend fun read(source: CatalogSource, page: Sitemap.Page): CatalogEntry? {
         val details = RecipeJsonLdExtractor.extractDetails(fetch(page.url), page.url) ?: return null
-        return CatalogEntry.of(details, source.siteId, page.url, page.lastmod).takeIf(CatalogPolicy::accepts)
+        val withCategory = if (Course.of(details.categories) != Course.AUTRE || page.category == null) {
+            details
+        } else {
+            details.copy(categories = listOf(page.category))
+        }
+        return CatalogEntry.of(withCategory, source.siteId, page.url, page.lastmod).takeIf(CatalogPolicy::accepts)
+    }
+
+    companion object {
+        private val listingCategories = mapOf(
+            "entree" to "Entrée", "entrees" to "Entrée",
+            "plat" to "Plat", "plats" to "Plat",
+            "dessert" to "Dessert", "desserts" to "Dessert",
+            "aperitif" to "Apéritif", "aperitifs" to "Apéritif",
+            "accompagnement" to "Accompagnement", "accompagnements" to "Accompagnement",
+            "soupe" to "Soupe", "soupes" to "Soupe",
+            "salade" to "Salade", "salades" to "Salade",
+        )
+
+        /**
+         * Catégorie portée par l'adresse d'une rubrique dédiée à un type de plat (« .../recettes-entrees.htm »,
+         * « .../recettes-de-cuisine/plat »), sans toucher aux sous-rubriques thématiques (« .../recettes-plats/pates/ »).
+         */
+        internal fun listingCategory(listingUrl: String): String? {
+            val last = listingUrl.substringBefore('?').substringBefore('#').trimEnd('/')
+                .substringAfterLast('/').removeSuffix(".htm").removeSuffix(".html")
+            val key = last.removePrefix("recettes-").lowercase()
+            return if (last.lowercase() == key || last.lowercase().startsWith("recettes-")) listingCategories[key] else null
+        }
     }
 }

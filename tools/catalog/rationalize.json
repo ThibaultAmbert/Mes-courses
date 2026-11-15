@@ -1,6 +1,6 @@
 {
   "requireUniqueImage": true,
-  "excludedCourses": ["BOISSON"],
+  "excludedCourses": ["BOISSON", "AUTRE"],
   "defaultMinRating": 4.5,
   "minRatingBySite": {
     "hellofresh": 4.0
