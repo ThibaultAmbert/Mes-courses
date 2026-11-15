@@ -160,41 +160,44 @@ private fun logoUrl(domain: String) = "https://www.google.com/s2/favicons?domain
 
 @Composable
 internal fun SearchScreen(progress: String?, modelLoading: Boolean, onCancel: () -> Unit) {
-    // Horloge d'affichage : l'animation tourne même quand Android réduit ou coupe les animations
-    // (économie d'énergie, accessibilité), ce qui figeait les transitions infinies.
-    var time by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    // Horloge d'affichage : l'animation tourne même quand Android réduit ou coupe les animations.
+    // Le temps n'est lu que dans les lambdas de dessin (offset, graphicsLayer) : à chaque image, seules les
+    // couches bougent, l'écran n'est pas recomposé (sinon saccades quand la recherche et le modèle tournent).
+    val time = remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
     LaunchedEffect(Unit) {
         val start = androidx.compose.runtime.withFrameNanos { it }
-        while (true) androidx.compose.runtime.withFrameNanos { now -> time = (now - start) / 1_000_000_000f }
+        while (true) androidx.compose.runtime.withFrameNanos { now -> time.floatValue = (now - start) / 1_000_000_000f }
     }
-    val wave = (1f - cos(time * 2f * Math.PI.toFloat() / 2.4f)) / 2f
-    val outer = (time * 360f / 14f) % 360f
-    val inner = 360f - (time * 360f / 22f) % 360f
-    val pulse = 1f + 0.18f * wave
-    val bob = -6f * wave
+    val wave = { (1f - cos(time.floatValue * 2f * Math.PI.toFloat() / 2.4f)) / 2f }
     // Étapes réelles du moteur, déduites du message de progression.
-    val stage = when {
+    val stage = remember(progress) { when {
         progress == null -> 0
         progress.contains("entrées et desserts", ignoreCase = true) -> 3
         progress.contains("choisit", ignoreCase = true) || progress.contains("compose", ignoreCase = true) -> 2
         else -> 1
-    }
+    } }
     val steps = listOf("Lecture de tes envies", "Recettes de saison sur les sites", "Le chef choisit les plats", "Entrées et desserts")
     // Avancement : l'étape, et dans l'étape le « (n/m) » que donne le moteur (sites interrogés, recettes lues).
-    val sub = progress?.let { Regex("""\((\d+)/(\d+)\)""").find(it) }
-        ?.let { m -> (m.groupValues[1].toFloat() / m.groupValues[2].toFloat().coerceAtLeast(1f)).coerceIn(0f, 1f) } ?: 0f
+    val sub = remember(progress) {
+        progress?.let { Regex("""\((\d+)/(\d+)\)""").find(it) }
+            ?.let { m -> (m.groupValues[1].toFloat() / m.groupValues[2].toFloat().coerceAtLeast(1f)).coerceIn(0f, 1f) } ?: 0f
+    }
     val target = when (stage) { 0 -> 0.03f; 1 -> 0.05f + 0.55f * sub; 2 -> 0.68f; else -> 0.86f + 0.1f * sub }
     val fraction by animateFloatAsState(target, tween(500), label = "search")
     Column(Modifier.fillMaxSize().background(Cuisine.Peach)) {
         TunnelHeader(current = 2, onClose = onCancel, onDark = true)
         Box(Modifier.fillMaxWidth().height(320.dp), contentAlignment = Alignment.Center) {
-            Box(Modifier.size(200.dp).graphicsLayer { scaleX = pulse; scaleY = pulse; alpha = 0.25f }.clip(CircleShape).background(Cuisine.Tomato))
+            Box(Modifier.size(200.dp).graphicsLayer { val p = 1f + 0.18f * wave(); scaleX = p; scaleY = p; alpha = 0.25f }.clip(CircleShape).background(Cuisine.Tomato))
             Box(Modifier.size(280.dp).border(1.dp, Color(0xFFEBC9AA), CircleShape))
             Box(Modifier.size(190.dp).border(1.dp, Color(0xFFEBC9AA), CircleShape))
-            SITES_OUTER.forEachIndexed { i, id -> OrbitBadge(id, 140, outer + i * 360f / SITES_OUTER.size, 52, i, outer) }
-            SITES_INNER.forEachIndexed { i, id -> OrbitBadge(id, 92, inner + i * 120f + 60f, 44, i + SITES_OUTER.size, outer) }
+            SITES_OUTER.forEachIndexed { i, id ->
+                OrbitBadge(id, 140, 52, i, angle = { time.floatValue * 360f / 14f + i * 360f / SITES_OUTER.size }, clock = { time.floatValue })
+            }
+            SITES_INNER.forEachIndexed { i, id ->
+                OrbitBadge(id, 92, 44, i + SITES_OUTER.size, angle = { -time.floatValue * 360f / 22f + i * 120f + 60f }, clock = { time.floatValue })
+            }
             Box(
-                Modifier.offset { IntOffset(0, bob.dp.roundToPx()) }.size(104.dp).clip(CircleShape).background(Cuisine.Tomato),
+                Modifier.offset { IntOffset(0, (-6f * wave()).dp.roundToPx()) }.size(104.dp).clip(CircleShape).background(Cuisine.Tomato),
                 contentAlignment = Alignment.Center,
             ) { Icon(Icons.Filled.RestaurantMenu, "Le chef", tint = Color.White, modifier = Modifier.size(50.dp)) }
         }
@@ -216,7 +219,7 @@ internal fun SearchScreen(progress: String?, modelLoading: Boolean, onCancel: ()
 }
 
 @Composable
-private fun OrbitBadge(siteId: String, radius: Int, angle: Float, size: Int, order: Int, clock: Float) {
+private fun OrbitBadge(siteId: String, radius: Int, size: Int, order: Int, angle: () -> Float, clock: () -> Float) {
     val site = RecipeSites.byId(siteId) ?: return
     // Arrivée en cascade, puis chaque logo « respire » à son tour pendant qu'il tourne.
     val appear = remember { Animatable(0f) }
@@ -224,15 +227,20 @@ private fun OrbitBadge(siteId: String, radius: Int, angle: Float, size: Int, ord
         kotlinx.coroutines.delay(order * 140L)
         appear.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.5f, stiffness = 300f))
     }
-    val beat = 1f + 0.12f * sin(Math.toRadians((clock * 4 + order * 60).toDouble())).toFloat().coerceAtLeast(0f)
-    val rad = Math.toRadians(angle.toDouble())
+    // Position, taille et ombre calculées au dessin, sur la couche du logo : rien n'est recomposé à chaque image.
     Box(
         Modifier
-            .offset { IntOffset((cos(rad) * radius.dp.toPx()).roundToInt(), (sin(rad) * radius.dp.toPx()).roundToInt()) }
-            .graphicsLayer { val sc = appear.value * beat; scaleX = sc; scaleY = sc }
+            .offset {
+                val rad = Math.toRadians(angle().toDouble())
+                IntOffset((cos(rad) * radius.dp.toPx()).roundToInt(), (sin(rad) * radius.dp.toPx()).roundToInt())
+            }
+            .graphicsLayer {
+                val beat = 1f + 0.12f * sin(Math.toRadians((clock() * 360f / 14f * 4 + order * 60).toDouble())).toFloat().coerceAtLeast(0f)
+                val sc = appear.value * beat
+                scaleX = sc; scaleY = sc
+                shadowElevation = 4.dp.toPx(); shape = CircleShape; clip = true
+            }
             .size(size.dp)
-            .shadow(4.dp, CircleShape)
-            .clip(CircleShape)
             .background(Color.White),
         contentAlignment = Alignment.Center,
     ) {
