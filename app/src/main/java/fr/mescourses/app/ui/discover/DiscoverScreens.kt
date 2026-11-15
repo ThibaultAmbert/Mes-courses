@@ -404,7 +404,6 @@ private fun IdleDiscover(
     onQuickIdea: (QuickIdea) -> Unit,
     onBrowse: (String) -> Unit,
 ) {
-    var browseOpen by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 8.dp)) {
         SectionHeader("Idées rapides", emoji = "✨")
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -422,25 +421,6 @@ private fun IdleDiscover(
                         label = { Text(idea.replaceFirstChar { it.uppercase() }) },
                         colors = FilterChipDefaults.filterChipColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
                     )
-                }
-            }
-        }
-        // Parcourir un site : replié par défaut, pour laisser la place aux idées.
-        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { browseOpen = !browseOpen }, verticalAlignment = Alignment.CenterVertically) {
-            SectionHeader("Parcourir un site", emoji = "🧭", modifier = Modifier.weight(1f))
-            Text(if (browseOpen) "▲" else "▼", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(end = 8.dp))
-        }
-        if (browseOpen) {
-            Text(
-                "Navigue sur le site dans l'app : chaque recette ouverte s'affiche en version simplifiée, prête à ajouter à tes favoris.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                RecipeSites.all.forEach { site ->
-                    OutlinedButton(onClick = { onBrowse(site.browsePage) }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
-                        Text(site.name)
-                    }
                 }
             }
         }
@@ -579,6 +559,7 @@ private fun PreviewBody(r: Recipe, siteName: String, offline: Boolean, portions:
             Text(r.title, style = MaterialTheme.typography.headlineSmall)
             Text("sur $siteName", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.secondary)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                fr.mescourses.app.ui.common.recipeCourse(r).takeIf { it != fr.mescourses.core.catalog.Course.AUTRE }?.let { StatChip(it.label, emphasized = true) }
                 r.prepMinutes?.let { StatChip("🔪 $it min") }
                 r.cookMinutes?.let { StatChip("🔥 $it min") }
                 fr.mescourses.app.ui.components.ServingsChip("👥 ${r.servings} pers.", r.servings, portions)

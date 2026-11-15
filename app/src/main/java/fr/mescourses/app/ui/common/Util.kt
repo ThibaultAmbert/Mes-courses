@@ -18,3 +18,14 @@ inline fun <reified VM : ViewModel> containerViewModel(key: String? = null, cros
     val container = appContainer()
     return viewModel(key = key, factory = viewModelFactory { initializer { create(container) } })
 }
+
+/** Type de la recette (entrée, plat, dessert…) : catégories du site, sinon le titre et les ingrédients. */
+fun recipeCourse(r: fr.mescourses.core.model.Recipe): fr.mescourses.core.catalog.Course =
+    fr.mescourses.core.catalog.Course.of(r.tags, r.title, r.ingredients.map { it.name })
+
+/** Place d'une recette dans le menu : entrée ou dessert ; null = plat principal. */
+fun menuCourseOf(course: fr.mescourses.core.catalog.Course): fr.mescourses.core.catalog.Course? = when (course) {
+    fr.mescourses.core.catalog.Course.DESSERT -> fr.mescourses.core.catalog.Course.DESSERT
+    fr.mescourses.core.catalog.Course.ENTREE, fr.mescourses.core.catalog.Course.APERITIF -> fr.mescourses.core.catalog.Course.ENTREE
+    else -> null
+}

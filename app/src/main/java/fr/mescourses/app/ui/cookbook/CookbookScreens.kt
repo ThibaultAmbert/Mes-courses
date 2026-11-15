@@ -360,6 +360,7 @@ fun RecipeDetailScreen(recipeId: Long, onBack: () -> Unit, onEdit: () -> Unit, o
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 r.description?.let { Text(it, style = MaterialTheme.typography.bodyLarge) }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    fr.mescourses.app.ui.common.recipeCourse(r).takeIf { it != fr.mescourses.core.catalog.Course.AUTRE }?.let { StatChip(it.label, emphasized = true) }
                     r.prepMinutes?.let { StatChip("🔪 $it min") }
                     r.cookMinutes?.let { StatChip("🔥 $it min") }
                     if (r.timesCooked > 0) StatChip("🍽 cuisiné ${r.timesCooked}×")

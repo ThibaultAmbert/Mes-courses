@@ -138,6 +138,9 @@ class RecipeDetailViewModel(private val c: AppContainer, private val id: Long) :
     fun addToMenu(r: Recipe) = viewModelScope.launch {
         // Fiche complète (ingrédients, site, image, durée) : comme un plat proposé par les sites.
         val minutes = listOfNotNull(r.prepMinutes, r.cookMinutes).takeIf { it.isNotEmpty() }?.sum()
+        // Entrée ou dessert : la catégorie du catalogue d'abord, sinon celle déduite de la recette.
+        val course = (r.sourceUrl?.let { c.catalog.byUrl(it) }?.course?.takeIf { it != fr.mescourses.core.catalog.Course.AUTRE }
+            ?: fr.mescourses.app.ui.common.recipeCourse(r)).let { fr.mescourses.app.ui.common.menuCourseOf(it) }
         c.draft.set(
             c.draft.get() + MenuDish(
                 title = r.title,
@@ -148,6 +151,7 @@ class RecipeDetailViewModel(private val c: AppContainer, private val id: Long) :
                 sourceUrl = r.sourceUrl,
                 imageUrl = r.imageUrl,
                 totalMinutes = minutes,
+                course = course,
             ),
         )
         messages.value = "« ${r.title} » ajouté au menu en préparation"

@@ -16,45 +16,49 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import fr.mescourses.core.visual.DishVisuals
 
-/** Palette « Potager » : vert sauge, terracotta, moutarde, crème, ardoise. */
-object Potager {
-    val Sage = Color(0xFF4F7A4A)
-    val Terracotta = Color(0xFFC8643B)
-    val Mustard = Color(0xFFE0A93B)
-    val Cream = Color(0xFFFBF8F1)
-    val Slate = Color(0xFF2F3A33)
+/** Palette « Cuisine » : tomate, safran, basilic, crème et brun café. */
+object Cuisine {
+    val Tomato = Color(0xFFC73E22)
+    val Saffron = Color(0xFFF6B93B)
+    val SaffronLight = Color(0xFFFDE7B0)
+    val Basil = Color(0xFFCDE7A6)
+    val BasilLight = Color(0xFFE3F1CF)
+    val Cream = Color(0xFFFFF6EC)
+    val Peach = Color(0xFFFFE9D6)
+    val Coffee = Color(0xFF3B2418)
+    val CoffeeMuted = Color(0xFF7A5E4E)
 }
 
 private val Light = lightColorScheme(
-    primary = Potager.Sage, onPrimary = Color.White,
-    primaryContainer = Color(0xFFD6E8CF), onPrimaryContainer = Color(0xFF10200E),
-    secondary = Potager.Terracotta, onSecondary = Color.White,
-    secondaryContainer = Color(0xFFF8DCCD), onSecondaryContainer = Color(0xFF3A1607),
-    tertiary = Potager.Mustard, onTertiary = Color(0xFF2B1E00),
-    tertiaryContainer = Color(0xFFFBE7B8), onTertiaryContainer = Color(0xFF3A2A00),
-    background = Potager.Cream, onBackground = Potager.Slate,
-    surface = Potager.Cream, onSurface = Potager.Slate,
-    surfaceVariant = Color(0xFFECE6DA), onSurfaceVariant = Color(0xFF5B6358),
-    surfaceContainerLowest = Color.White, surfaceContainerLow = Color(0xFFF6F2E9),
-    surfaceContainer = Color(0xFFF1ECE2), surfaceContainerHigh = Color(0xFFECE6DA),
-    surfaceContainerHighest = Color(0xFFE6DFD2),
-    outline = Color(0xFF8B9286), outlineVariant = Color(0xFFD7D0C3),
+    primary = Cuisine.Tomato, onPrimary = Color.White,
+    primaryContainer = Color(0xFFFFDBCF), onPrimaryContainer = Cuisine.Coffee,
+    secondary = Color(0xFF8A5A00), onSecondary = Color.White,
+    secondaryContainer = Cuisine.SaffronLight, onSecondaryContainer = Cuisine.Coffee,
+    tertiary = Color(0xFF4E7A2E), onTertiary = Color.White,
+    tertiaryContainer = Cuisine.BasilLight, onTertiaryContainer = Color(0xFF1F3310),
+    background = Cuisine.Cream, onBackground = Cuisine.Coffee,
+    surface = Cuisine.Cream, onSurface = Cuisine.Coffee,
+    surfaceVariant = Color(0xFFF6E8DA), onSurfaceVariant = Cuisine.CoffeeMuted,
+    surfaceContainerLowest = Color.White, surfaceContainerLow = Color(0xFFFFF0E2),
+    surfaceContainer = Color(0xFFFBEBDD), surfaceContainerHigh = Color(0xFFF6E2CF),
+    surfaceContainerHighest = Color(0xFFF0D9C3),
+    outline = Color(0xFFA88B78), outlineVariant = Color(0xFFEED9C4),
 )
 
 private val Dark = darkColorScheme(
-    primary = Color(0xFFA5CF9C), onPrimary = Color(0xFF173816),
-    primaryContainer = Color(0xFF375F33), onPrimaryContainer = Color(0xFFD6E8CF),
-    secondary = Color(0xFFFFB59A), onSecondary = Color(0xFF5A1F05),
-    secondaryContainer = Color(0xFF7C3A1C), onSecondaryContainer = Color(0xFFFFDBCD),
-    tertiary = Color(0xFFF2C46A), onTertiary = Color(0xFF402D00),
-    tertiaryContainer = Color(0xFF5C4300), onTertiaryContainer = Color(0xFFFBE7B8),
-    background = Color(0xFF151A16), onBackground = Color(0xFFE4E3DC),
-    surface = Color(0xFF151A16), onSurface = Color(0xFFE4E3DC),
-    surfaceVariant = Color(0xFF3F4A40), onSurfaceVariant = Color(0xFFBFC9BB),
-    surfaceContainerLowest = Color(0xFF101410), surfaceContainerLow = Color(0xFF1D221D),
-    surfaceContainer = Color(0xFF212621), surfaceContainerHigh = Color(0xFF2B312B),
-    surfaceContainerHighest = Color(0xFF363C36),
-    outline = Color(0xFF899387), outlineVariant = Color(0xFF3F4A40),
+    primary = Color(0xFFFFB4A0), onPrimary = Color(0xFF5E1605),
+    primaryContainer = Color(0xFF8E2A14), onPrimaryContainer = Color(0xFFFFDBD1),
+    secondary = Color(0xFFF6C25B), onSecondary = Color(0xFF402D00),
+    secondaryContainer = Color(0xFF5C4300), onSecondaryContainer = Cuisine.SaffronLight,
+    tertiary = Color(0xFFB5D88E), onTertiary = Color(0xFF1F3310),
+    tertiaryContainer = Color(0xFF365322), onTertiaryContainer = Cuisine.BasilLight,
+    background = Color(0xFF1E1611), onBackground = Color(0xFFF6E7DA),
+    surface = Color(0xFF1E1611), onSurface = Color(0xFFF6E7DA),
+    surfaceVariant = Color(0xFF52433A), onSurfaceVariant = Color(0xFFD9C2B2),
+    surfaceContainerLowest = Color(0xFF18110C), surfaceContainerLow = Color(0xFF261D17),
+    surfaceContainer = Color(0xFF2B211B), surfaceContainerHigh = Color(0xFF362B24),
+    surfaceContainerHighest = Color(0xFF41352D),
+    outline = Color(0xFFA08D80), outlineVariant = Color(0xFF52433A),
 )
 
 private val Base = Typography()
