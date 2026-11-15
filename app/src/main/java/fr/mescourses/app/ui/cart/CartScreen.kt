@@ -3,6 +3,8 @@
 package fr.mescourses.app.ui.cart
 
 import android.webkit.WebSettings
+import fr.mescourses.app.ui.components.BusyBar
+import fr.mescourses.app.ui.components.Spinner
 import androidx.compose.ui.platform.LocalContext
 import coil.request.ImageRequest
 import androidx.compose.foundation.verticalScroll
@@ -238,7 +240,17 @@ fun CartScreen(
                     }
                 }
             }
-            if (state.phase == Phase.ENVOI) item { Busy("Ajout au panier, à rythme humain…") }
+            if (state.phase == Phase.ENVOI) item {
+                val total = state.sending.size
+                val done = state.sending.count { i -> state.lines.getOrNull(i)?.status.let { it == LineStatus.AJOUTE || it == LineStatus.ERREUR } }
+                Column {
+                    Text("Ajout au panier, à rythme humain… $done / $total", style = MaterialTheme.typography.bodyMedium)
+                    LinearProgressIndicator(
+                        progress = { done.toFloat() / total.coerceAtLeast(1) },
+                        modifier = Modifier.fillMaxWidth().padding(top = 6.dp).clip(RoundedCornerShape(50)),
+                    )
+                }
+            }
             if (state.phase != Phase.IDLE) {
                 itemsIndexed(state.lines) { index, line ->
                     CartLineCard(
@@ -364,7 +376,7 @@ private fun ProductDetailSheet(sheet: ProductSheet, onDismiss: () -> Unit) {
                 Text("⚠ Indisponible dans ton drive pour le moment", color = MaterialTheme.colorScheme.error)
             }
             if (sheet is ProductSheet.Loading) {
-                LinearProgressIndicator(Modifier.fillMaxWidth())
+                BusyBar(Modifier.fillMaxWidth())
             } else {
                 val description = detail?.description ?: p.description
                 description?.let { Section("Description", it) }
@@ -533,7 +545,7 @@ private fun ShoppingChatSheet(onDismiss: () -> Unit) {
 @Composable
 private fun Busy(text: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+        Spinner(Modifier.size(18.dp), strokeWidth = 2.dp)
         Text(text, Modifier.padding(start = 10.dp))
     }
 }
@@ -675,7 +687,7 @@ private fun ChoiceSheet(
                             modifier = Modifier.weight(1f),
                         )
                     }
-                    if (searching) LinearProgressIndicator(Modifier.fillMaxWidth())
+                    if (searching) BusyBar(Modifier.fillMaxWidth())
                     line.note?.let { Text("⚠ $it", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.tertiary) }
                     if (!searching && line.candidates.isEmpty()) Text("Aucun produit reçu pour « ${line.query ?: query} ».", style = MaterialTheme.typography.bodyMedium)
                 }

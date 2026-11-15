@@ -41,6 +41,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -328,7 +330,7 @@ fun ChefCard(title: String, text: String, modifier: Modifier = Modifier, emoji: 
     ) {
         Row(Modifier.padding(horizontal = 18.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(contentAlignment = Alignment.Center) {
-                androidx.compose.material3.CircularProgressIndicator(
+                Spinner(
                     Modifier.size(34.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.secondary,
                 )
                 Text(emoji, fontSize = 16.sp)
@@ -351,4 +353,56 @@ fun ModelLoadingCard(modifier: Modifier = Modifier) =
 fun ServingsChip(text: String, servings: Int, selected: fr.mescourses.core.model.Portions, modifier: Modifier = Modifier) {
     val same = servings == selected.adults + selected.children
     StatChip(text, modifier, tint = if (same) androidx.compose.ui.graphics.Color(0xFF2E7D32) else androidx.compose.ui.graphics.Color(0xFFC62828))
+}
+
+/**
+ * Temps écoulé (en secondes) d'après l'horloge d'affichage. Les indicateurs d'attente s'en servent pour tourner même
+ * quand Android réduit ou coupe les animations (économie d'énergie, accessibilité), ce qui fige les indicateurs Material.
+ */
+@Composable
+fun rememberFrameTime(): androidx.compose.runtime.State<Float> {
+    val time = androidx.compose.runtime.remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        val start = androidx.compose.runtime.withFrameNanos { it }
+        while (true) androidx.compose.runtime.withFrameNanos { now -> time.floatValue = (now - start) / 1_000_000_000f }
+    }
+    return time
+}
+
+/** Rond d'attente (durée inconnue) : un arc qui tourne en s'allongeant et se raccourcissant. */
+@Composable
+fun Spinner(
+    modifier: Modifier = Modifier,
+    color: Color = MaterialTheme.colorScheme.primary,
+    strokeWidth: Dp = 4.dp,
+    trackColor: Color = Color.Transparent,
+) {
+    val time = rememberFrameTime()
+    androidx.compose.material3.CircularProgressIndicator(
+        progress = { 0.12f + 0.6f * ((1f - kotlin.math.cos(time.value * 2f * Math.PI.toFloat() / 1.6f)) / 2f) },
+        modifier = modifier.graphicsLayer { rotationZ = time.value * 300f },
+        color = color,
+        strokeWidth = strokeWidth,
+        trackColor = trackColor,
+        strokeCap = androidx.compose.ui.graphics.StrokeCap.Round,
+        gapSize = 0.dp,
+    )
+}
+
+/** Barre d'attente (durée inconnue) : un segment qui traverse la barre en boucle. */
+@Composable
+fun BusyBar(
+    modifier: Modifier = Modifier,
+    color: Color = MaterialTheme.colorScheme.primary,
+    trackColor: Color = MaterialTheme.colorScheme.surfaceContainerHighest,
+) {
+    val time = rememberFrameTime()
+    Box(
+        modifier.height(4.dp).clip(RoundedCornerShape(50)).background(trackColor).drawBehind {
+            val phase = (time.value / 1.4f) % 1f
+            val w = size.width * 0.35f
+            val x = (phase * 1.35f - 0.35f) * size.width
+            drawRect(color, topLeft = androidx.compose.ui.geometry.Offset(x, 0f), size = androidx.compose.ui.geometry.Size(w, size.height))
+        },
+    )
 }

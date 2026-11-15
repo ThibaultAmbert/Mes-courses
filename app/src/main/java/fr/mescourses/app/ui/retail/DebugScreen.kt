@@ -1,6 +1,7 @@
 package fr.mescourses.app.ui.retail
 
 import android.content.Intent
+import fr.mescourses.app.ui.components.BusyBar
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -145,7 +146,7 @@ fun RetailerDebugScreen(onBack: () -> Unit, onOpenSite: (Retailer) -> Unit) {
                     sending = false
                 }
             }) { Text(if (sending) "Envoi… (chargement de ${retailer.site})" else "Envoyer") }
-            if (sending) LinearProgressIndicator(Modifier.fillMaxWidth())
+            if (sending) BusyBar(Modifier.fillMaxWidth())
 
             // Identifiants du drive seulement (aucune donnée personnelle).
             if (retailer == Retailer.LECLERC) Text(

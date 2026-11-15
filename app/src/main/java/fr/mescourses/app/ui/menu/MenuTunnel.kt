@@ -3,6 +3,8 @@
 package fr.mescourses.app.ui.menu
 
 import androidx.compose.animation.core.Animatable
+import fr.mescourses.app.ui.components.BusyBar
+import fr.mescourses.app.ui.components.Spinner
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -178,6 +180,11 @@ internal fun SearchScreen(progress: String?, modelLoading: Boolean, onCancel: ()
         else -> 1
     }
     val steps = listOf("Lecture de tes envies", "Recettes de saison sur les sites", "Le chef choisit les plats", "Entrées et desserts")
+    // Avancement : l'étape, et dans l'étape le « (n/m) » que donne le moteur (sites interrogés, recettes lues).
+    val sub = progress?.let { Regex("""\((\d+)/(\d+)\)""").find(it) }
+        ?.let { m -> (m.groupValues[1].toFloat() / m.groupValues[2].toFloat().coerceAtLeast(1f)).coerceIn(0f, 1f) } ?: 0f
+    val target = when (stage) { 0 -> 0.03f; 1 -> 0.05f + 0.55f * sub; 2 -> 0.68f; else -> 0.86f + 0.1f * sub }
+    val fraction by animateFloatAsState(target, tween(500), label = "search")
     Column(Modifier.fillMaxSize().background(Cuisine.Peach)) {
         TunnelHeader(current = 2, onClose = onCancel, onDark = true)
         Box(Modifier.fillMaxWidth().height(320.dp), contentAlignment = Alignment.Center) {
@@ -194,6 +201,14 @@ internal fun SearchScreen(progress: String?, modelLoading: Boolean, onCancel: ()
         Column(Modifier.padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Text("Le chef cherche…", style = MaterialTheme.typography.headlineMedium, color = Cuisine.Coffee)
             Text(progress ?: "Marmiton, Jow, HelloFresh, 750g, Journal des Femmes, Picnic…", style = MaterialTheme.typography.bodyMedium, color = Cuisine.CoffeeMuted)
+            LinearProgressIndicator(
+                progress = { fraction },
+                modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(50)),
+                color = Cuisine.Tomato,
+                trackColor = Color(0xFFF6D7BC),
+                gapSize = 0.dp,
+                drawStopIndicator = {},
+            )
             if (modelLoading) ModelLoadingCard()
             steps.forEachIndexed { i, label -> StepLine(label, done = i < stage, active = i == stage) }
         }
@@ -244,7 +259,7 @@ private fun StepLine(label: String, done: Boolean, active: Boolean) {
             done -> Box(Modifier.size(24.dp).clip(CircleShape).background(Cuisine.Basil), contentAlignment = Alignment.Center) {
                 Icon(Icons.Filled.Check, null, tint = Cuisine.Coffee, modifier = Modifier.size(14.dp))
             }
-            active -> CircularProgressIndicator(Modifier.size(22.dp), color = Cuisine.Tomato, strokeWidth = 2.5.dp, trackColor = Color(0xFFEBC9AA))
+            active -> Spinner(Modifier.size(22.dp), color = Cuisine.Tomato, strokeWidth = 2.5.dp, trackColor = Color(0xFFEBC9AA))
             else -> Box(Modifier.size(22.dp).border(2.dp, Color(0xFFEBC9AA), CircleShape))
         }
         Text(label, style = MaterialTheme.typography.bodyLarge, color = if (done || active) Cuisine.Coffee else Color(0xFF8A6A55))
@@ -472,7 +487,7 @@ internal fun RecapScreen(
             Text("/$target", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 6.dp))
         }
         if (busy) {
-            LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 20.dp))
+            BusyBar(Modifier.fillMaxWidth().padding(horizontal = 20.dp))
             state.progress?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) }
         }
         LazyColumn(
@@ -667,8 +682,8 @@ internal fun PreparationScreen(v: Validation, dishes: List<MenuDish>, modelLoadi
     val frac by animateFloatAsState(v.done.toFloat() / v.total.coerceAtLeast(1), tween(600), label = "prep")
     val finished = v.done >= v.total
     val steps = listOf(
-        "Portions calculées" to (v.done > 0),
-        "Ingrédients extraits des recettes" to finished,
+        "Portions calculées" to true,
+        "Ingrédients des plats · ${v.done.coerceAtMost(v.total)} / ${v.total}" to finished,
         "Liste de courses rangée par rayon" to false,
         "Recettes rangées dans ton livre" to false,
     )

@@ -3,6 +3,7 @@
 package fr.mescourses.app.ui.cookbook
 
 import fr.mescourses.app.ui.discover.DiscoverViewModel
+import fr.mescourses.app.ui.components.Spinner
 import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.saveable.rememberSaveable
 import fr.mescourses.app.llm.ModelStatus
@@ -222,7 +223,7 @@ fun CookbookScreen(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             )
             if (importing) Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                Spinner(Modifier.size(18.dp), strokeWidth = 2.dp)
                 Text("Import de la recette…", Modifier.padding(start = 8.dp))
             }
             if (recipes.isEmpty()) {

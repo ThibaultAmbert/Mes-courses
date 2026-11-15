@@ -1,6 +1,7 @@
 package fr.mescourses.app.ui.retail
 
 import android.location.Geocoder
+import fr.mescourses.app.ui.components.Spinner
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -143,7 +144,7 @@ fun StoreScreen(retailer: Retailer, onBack: () -> Unit, onOpenSite: (String) -> 
                     }
                 }
             }
-            if (loading) item { CircularProgressIndicator() }
+            if (loading) item { Spinner(Modifier.padding(16.dp)) }
             error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
             // Clé unique : un même magasin peut revenir pour plusieurs services.
             itemsIndexed(stores, key = { i, st -> "${st.id}|${st.ref}|$i" }) { _, store ->

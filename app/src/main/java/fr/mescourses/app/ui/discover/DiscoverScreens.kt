@@ -3,6 +3,8 @@
 package fr.mescourses.app.ui.discover
 
 import android.annotation.SuppressLint
+import fr.mescourses.app.ui.components.BusyBar
+import fr.mescourses.app.ui.components.Spinner
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
@@ -251,7 +253,7 @@ fun DiscoverContent(
                 // Pendant un rechargement, l'indicateur du geste suffit.
                 if (!reloading) item(span = { GridItemSpan(2) }) {
                     Row(Modifier.padding(vertical = 24.dp), verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                        Spinner(Modifier.size(20.dp), strokeWidth = 2.dp)
                         Text(
                             when {
                                 popular -> "Recettes populaires du moment…"
@@ -286,7 +288,7 @@ fun DiscoverContent(
                         // Résultats du catalogue local : la recherche en ligne reste possible, en complément.
                         if (searchingOnline) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                                Spinner(Modifier.size(16.dp), strokeWidth = 2.dp)
                                 Text("Recherche sur les sites…", Modifier.padding(start = 10.dp), style = MaterialTheme.typography.bodySmall)
                             }
                         } else if (localOnly) {
@@ -462,7 +464,7 @@ private fun HitCard(hit: RecipeHit, badge: RecipeFilter?, favorite: Boolean, add
                         .background(if (favorite) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.surfaceContainerLowest),
                     contentAlignment = Alignment.Center,
                 ) {
-                    if (adding) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                    if (adding) Spinner(Modifier.size(16.dp), strokeWidth = 2.dp)
                     else Text(
                         if (favorite) "★" else "☆",
                         color = if (favorite) MaterialTheme.colorScheme.onTertiary else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -521,7 +523,7 @@ fun RecipePreviewScreen(url: String, onBack: () -> Unit, onOpenRecipe: (Long) ->
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
-                CircularProgressIndicator()
+                Spinner(Modifier.size(40.dp))
                 Text("Lecture de la recette sur $siteName…", Modifier.padding(top = 12.dp))
             }
             is RecipePreviewViewModel.State.Failed -> Column(Modifier.padding(padding).fillMaxSize()) {
@@ -726,7 +728,7 @@ fun RecipeBrowserScreen(startUrl: String, onClose: () -> Unit, onOpenRecipe: (Lo
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
             Column(Modifier.fillMaxSize()) {
-                if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+                if (loading) BusyBar(Modifier.fillMaxWidth())
                 AndroidView(
                     modifier = Modifier.fillMaxSize(),
                     factory = { ctx ->
@@ -819,7 +821,7 @@ private fun DetectedBanner(recipe: Recipe, inFavorites: Boolean, saving: Boolean
                 )
             }
             when {
-                saving -> CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                saving -> Spinner(Modifier.size(24.dp), strokeWidth = 2.dp)
                 inFavorites -> OutlinedButton(onClick = onOpen) { Text("Ouvrir") }
                 else -> Button(onClick = onAdd) { Text("⭐ Ajouter") }
             }

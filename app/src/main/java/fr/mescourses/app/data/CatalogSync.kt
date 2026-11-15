@@ -74,6 +74,8 @@ data class CatalogStatus(
     val remote: Map<String, RemoteSite> = emptyMap(),
     /** Site en cours de téléchargement. */
     val installing: String? = null,
+    /** Avancement du téléchargement de la base en cours (0..1) ; null = inconnu ou pendant l'enregistrement. */
+    val installProgress: Float? = null,
     /** Métadonnées du modèle d'embeddings publiées par la release (ou repli par défaut). */
     val embedderRemote: EmbedderRemote? = null,
     /** Le fichier du modèle d'embeddings est présent et non vide dans `files/embedder/`. */
@@ -305,7 +307,7 @@ class CatalogSync(
                 ciFailed += name
             }
         }
-        status.update { it.copy(installing = null) }
+        status.update { it.copy(installing = null, installProgress = null) }
 
         val shouldCrawl = forceCrawl || updater.due()
         val report = if (shouldCrawl) {
@@ -403,6 +405,7 @@ class CatalogSync(
                 lastUpdate = store.meta(CatalogUpdater.LAST_UPDATE)?.toLongOrNull(),
                 working = null,
                 installing = null,
+                installProgress = null,
                 lastResult = result ?: it.lastResult,
                 loaded = true,
                 installed = installed,
@@ -455,7 +458,14 @@ class CatalogSync(
             var downloaded = false
             if (remote != null) {
                 try {
-                    download(remote, file) { done -> status.update { it.copy(working = "${siteName(siteId)} : téléchargement… (${done / 1_000_000} Mo)") } }
+                    download(remote, file) { done ->
+                        status.update {
+                            it.copy(
+                                working = "${siteName(siteId)} : téléchargement… (${done / 1_000_000} Mo" + (if (remote.bytes > 0) " sur ${remote.bytes / 1_000_000} Mo)" else ")"),
+                                installProgress = if (remote.bytes > 0) (done.toFloat() / remote.bytes).coerceIn(0f, 1f) else null,
+                            )
+                        }
+                    }
                     downloaded = true
                 } catch (e: CancellationException) {
                     throw e
@@ -514,7 +524,7 @@ class CatalogSync(
                         .filter { it.siteId == siteId }
                     store.upsert(entries)
                     entries.forEach { importedUrls += it.url }
-                    status.update { it.copy(working = "${siteName(siteId)} : enregistrement… (%,d recettes)".format(java.util.Locale.FRANCE, importedUrls.size)) }
+                    status.update { it.copy(working = "${siteName(siteId)} : enregistrement… (%,d recettes)".format(java.util.Locale.FRANCE, importedUrls.size), installProgress = null) }
                 }
             }
         }
@@ -558,7 +568,7 @@ class CatalogSync(
     companion object {
         private const val TAG = "CatalogSync"
         private const val DIR = "catalog"
-        private const val REPO = "thibaultambert-jpg/Mes-courses"
+        private const val REPO = "ThibaultAmbert/Mes-courses"
         private const val TAG_NAME = "catalogue"
         private const val SETUP_DONE = "choix-des-bases-vu"
         private const val MAX_EMBED_PER_UPDATE = 500

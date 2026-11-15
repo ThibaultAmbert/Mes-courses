@@ -1,6 +1,7 @@
 package fr.mescourses.app.ui.retail
 
 import android.graphics.Bitmap
+import fr.mescourses.app.ui.components.BusyBar
 import android.webkit.CookieManager
 import android.webkit.GeolocationPermissions
 import android.webkit.JavascriptInterface
@@ -279,7 +280,7 @@ fun RetailerWebScreen(retailer: Retailer, startUrl: String, mode: WebMode, onClo
                     modifier = Modifier.padding(8.dp),
                 )
             }
-            if (loading || closing) LinearProgressIndicator(Modifier.fillMaxWidth())
+            if (loading || closing) BusyBar(Modifier.fillMaxWidth())
             // Diagnostic discret : utile si une page reste blanche (hôte, erreur de chargement).
             Text(
                 listOfNotNull(pageHost, loadError?.let { "⚠ $it" }, jsErrors.lastOrNull()?.let { "JS (${jsErrors.size}) : $it" }).joinToString("  ·  "),

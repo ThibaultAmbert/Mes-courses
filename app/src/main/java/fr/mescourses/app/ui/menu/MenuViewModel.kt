@@ -143,6 +143,9 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
     /** Résultat du dernier « Mieux mutualiser », affiché dans la fenêtre des ingrédients partagés. */
     val sharingResult = MutableStateFlow<String?>(null)
 
+    /** « Mieux mutualiser » en cours de calcul. */
+    val sharingBusy = MutableStateFlow(false)
+
     /** Propositions fraîches à passer en revue, une par une (garder / passer), avant le récap. */
     val reviewing = MutableStateFlow(false)
     val season = fr.mescourses.core.season.Seasonality.forMonth(java.time.LocalDate.now().month)
@@ -962,8 +965,10 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
     fun improveSharing() {
         val pool = c.candidates.all()
         if (pool.isEmpty()) { send(MenuPrompt.IMPROVE_SHARING); return }
-        if (_state.value.busy) return
+        if (_state.value.busy || sharingBusy.value) return
+        sharingBusy.value = true
         viewModelScope.launch {
+          try {
             val dishes = c.draft.get()
             val wishes = c.currentWishes ?: config()
             // Seuls les plats principaux se mutualisent : les entrées et desserts restent en place.
@@ -983,6 +988,9 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
                 c.draft.set(dishes.toMutableList().also { it[at] = swap.candidate.toDish(old.portions) })
                 sharingResult.value = "« ${old.title} » remplacé par « ${swap.candidate.recipe.title} » : ${swap.sharedAfter} ingrédients partagés avec les autres plats (au lieu de ${swap.sharedBefore})."
             }
+          } finally {
+            sharingBusy.value = false
+          }
         }
     }
 

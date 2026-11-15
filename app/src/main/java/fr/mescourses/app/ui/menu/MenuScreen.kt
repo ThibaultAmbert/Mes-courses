@@ -3,6 +3,8 @@
 package fr.mescourses.app.ui.menu
 
 import android.Manifest
+import fr.mescourses.app.ui.components.BusyBar
+import fr.mescourses.app.ui.components.Spinner
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.BackHandler
@@ -152,6 +154,7 @@ fun MenuScreen(onOpenSettings: () -> Unit, onOpenRecipe: (Long) -> Unit, onOpenS
     var chatOpen by remember { mutableStateOf(false) }
     var sharingOpen by remember { mutableStateOf(false) }
     val sharingResult by vm.sharingResult.collectAsStateWithLifecycle()
+    val sharingBusy by vm.sharingBusy.collectAsStateWithLifecycle()
     val ready = state.model.available
     val askNotifications = rememberNotificationPermission()
 
@@ -257,7 +260,7 @@ fun MenuScreen(onOpenSettings: () -> Unit, onOpenRecipe: (Long) -> Unit, onOpenS
     if (sharingOpen && onTop) {
         SharingSheet(
             dishes = dishes, report = overlap, insights = insights, preview = preview,
-            busy = state.busy, canUndo = state.canUndo, result = sharingResult,
+            busy = state.busy || sharingBusy, canUndo = state.canUndo, result = sharingResult,
             canImprove = overlap.isolated.size > 1,
             onImprove = vm::improveSharing, onUndo = { vm.undo(); vm.sharingResult.value = "Dernier changement annulé." },
             onDismiss = { sharingOpen = false },
@@ -802,7 +805,7 @@ private fun ChatSheet(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (modelLoading) ModelLoadingCard(Modifier.padding(top = 8.dp))
-            else if (busy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
+            else if (busy) BusyBar(Modifier.fillMaxWidth().padding(top = 8.dp))
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxWidth().weight(1f, fill = false).heightIn(min = 72.dp, max = 320.dp).padding(vertical = 8.dp),
@@ -884,7 +887,7 @@ private fun AddDishSheet(
                 keyboardActions = KeyboardActions(onSearch = { onSearch(query) }),
                 trailingIcon = { TextButton(onClick = { onSearch(query) }, enabled = !busy) { Text("Chercher") } },
             )
-            if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+            if (busy) BusyBar(Modifier.fillMaxWidth())
             LazyColumn(
                 modifier = Modifier.fillMaxWidth().weight(1f, fill = false).heightIn(min = 72.dp, max = 380.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -1097,7 +1100,7 @@ private fun SharingSheet(
                     modifier = Modifier.weight(1f).height(56.dp),
                 ) {
                     Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                        if (busy) androidx.compose.material3.CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                        if (busy) Spinner(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
                         else Icon(Icons.Filled.AutoAwesome, null, Modifier.size(18.dp), tint = if (canImprove) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.size(8.dp))
                         Text(
