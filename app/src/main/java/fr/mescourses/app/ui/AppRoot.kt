@@ -3,7 +3,7 @@ package fr.mescourses.app.ui
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
-import androidx.compose.material.icons.filled.RestaurantMenu
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material3.Badge
@@ -65,7 +65,7 @@ import fr.mescourses.app.ui.shopping.ShoppingListScreen
 private data class Tab(val route: String, val label: String, val icon: ImageVector)
 
 private val tabs = listOf(
-    Tab("menu", "Menu", Icons.Filled.RestaurantMenu),
+    Tab("menu", "Envie", Icons.Filled.AutoAwesome),
     Tab("cookbook", "Recettes", Icons.AutoMirrored.Filled.MenuBook),
     Tab("shopping", "Liste", Icons.Filled.Checklist),
     Tab("cart", "Panier", Icons.Filled.ShoppingCart),

@@ -49,7 +49,11 @@ import kotlinx.serialization.json.Json
 /** Ligne du fil de discussion : message de l'utilisateur, réponse du LLM, ou trace d'outil. */
 data class ChatLine(val fromUser: Boolean, val text: String, val tool: Boolean = false, val ok: Boolean = true)
 
-enum class MenuStep(val label: String) { REGLAGES("Envies"), PROPOSITION("Menu"), SEMAINE("Semaine") }
+/**
+ * Écrans de l'onglet Envie : accueil (menu commencé, menu de la semaine, choix du tunnel), paramètres,
+ * proposition (recherche, swipe puis récap) et semaine validée.
+ */
+enum class MenuStep(val label: String) { ACCUEIL("Accueil"), REGLAGES("Envies"), PROPOSITION("Menu"), SEMAINE("Semaine") }
 
 /** Envies proposées en un toucher (les mots cherchés sur les sites sont dans [CandidateFinder.QUICK_WISHES]). */
 val QUICK_WISHES = CandidateFinder.QUICK_WISHES.keys.toList()
@@ -109,7 +113,13 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
     private val _state = MutableStateFlow(MenuUiState())
     val state: StateFlow<MenuUiState> = _state
 
-    val step = MutableStateFlow(MenuStep.REGLAGES)
+    val step = MutableStateFlow(MenuStep.ACCUEIL)
+
+    /** Recherche du menu en cours (écran animé du chef). */
+    val searching = MutableStateFlow(false)
+
+    /** Propositions fraîches à passer en revue, une par une (garder / passer), avant le récap. */
+    val reviewing = MutableStateFlow(false)
     val season = fr.mescourses.core.season.Seasonality.forMonth(java.time.LocalDate.now().month)
 
     val dishes: StateFlow<List<MenuDish>> = c.draft.observe().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -198,11 +208,8 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
 
     init {
         viewModelScope.launch {
-            step.value = when {
-                c.draft.get().isNotEmpty() -> MenuStep.PROPOSITION
-                c.plan.all().isNotEmpty() -> MenuStep.SEMAINE
-                else -> MenuStep.REGLAGES
-            }
+            // L'accueil montre le menu commencé et le menu de la semaine quand ils existent.
+            step.value = MenuStep.ACCUEIL
         }
         // Un plat ajouté depuis « Recettes » (ou ailleurs) pendant qu'on est sur « Envies » : on affiche le menu,
         // où le bloc d'ingrédients partagés se met à jour à chaque ajout.
@@ -307,11 +314,82 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
 
     fun goTo(target: MenuStep) {
         val allowed = when (target) {
-            MenuStep.REGLAGES -> true
+            MenuStep.ACCUEIL, MenuStep.REGLAGES -> true
             MenuStep.PROPOSITION -> dishes.value.isNotEmpty() || _state.value.busy
             MenuStep.SEMAINE -> week.value.isNotEmpty()
         }
         if (allowed) step.value = target
+    }
+
+    fun goHome() { if (!searching.value) step.value = MenuStep.ACCUEIL }
+
+    /** Reprend le menu commencé (plats ajoutés depuis Recettes, ou proposition interrompue) : directement au récap. */
+    fun continueDraft() {
+        reviewing.value = false
+        step.value = MenuStep.PROPOSITION
+    }
+
+    /** Fin du swipe : les plats passés quittent le menu et ne seront plus reproposés. */
+    fun finishReview(passed: Set<String>) = viewModelScope.launch {
+        if (passed.isNotEmpty()) {
+            val list = c.draft.get()
+            list.filter { it.title in passed }.forEach { reject(it) }
+            c.draft.set(list.filterNot { it.title in passed })
+        }
+        reviewing.value = false
+    }
+
+    /** Nombre de plats voulus par partie du repas (entrées, plats, desserts). */
+    fun targets(): Triple<Int, Int, Int> = (c.currentWishes ?: config()).let { Triple(it.starters, it.meals, it.desserts) }
+
+    /** « Le chef » sur une case vide : une recette de ce type ([course] null = plat principal) est ajoutée. */
+    fun fillSlot(course: Course?) = fill(listOf(course))
+
+    /** « Tout compléter » : toutes les cases vides du récap d'un coup. */
+    fun fillMissing() {
+        val (starters, meals, desserts) = targets()
+        val list = dishes.value
+        val have = { course: Course? -> list.count { d -> if (course == null) d.isMain else if (course == Course.DESSERT) d.course == Course.DESSERT else d.course != null && d.course != Course.DESSERT } }
+        val wanted = List((starters - have(Course.ENTREE)).coerceAtLeast(0)) { Course.ENTREE } +
+            List((meals - have(null)).coerceAtLeast(0)) { null } +
+            List((desserts - have(Course.DESSERT)).coerceAtLeast(0)) { Course.DESSERT }
+        if (wanted.isEmpty()) return
+        fill(wanted)
+    }
+
+    private fun fill(courses: List<Course?>) {
+        if (_state.value.busy) return
+        job = viewModelScope.launch {
+            exchanging = true
+            _state.update { it.copy(busy = true) }
+            var missed = 0
+            try {
+                c.chef.keepAwake("Le chef complète ton menu…") {
+                    snapshot()
+                    for (course in courses) {
+                        val next = if (course == null) bestToAdd() else searched(null, course = course)
+                        if (next == null) missed++ else c.draft.set(c.draft.get() + next.toDish(wishes().portions, course))
+                    }
+                }
+                if (missed > 0) _state.update { it.copy(message = "$missed recette(s) introuvable(s) : choisis-les toi-même avec « Choisir ».") }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                _state.update { it.copy(message = "Recherche impossible : ${e.message}") }
+            } finally {
+                exchanging = false
+                _state.update { it.copy(busy = c.chef.validating, progress = null) }
+            }
+        }
+    }
+
+    /** « Tout recommencer » : le brouillon est vidé et on revient aux paramètres. */
+    fun restart() = viewModelScope.launch {
+        cancelWarm(clearLastAnswer = true)
+        c.draft.set(emptyList())
+        before = null
+        reviewing.value = false
+        _state.update { it.copy(chat = emptyList(), canUndo = false) }
+        step.value = MenuStep.REGLAGES
     }
     fun consumeMessage() = _state.update { it.copy(message = null) }
 
@@ -412,6 +490,8 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
         job = viewModelScope.launch {
             cancelWarm(clearLastAnswer = true)
             c.draft.set(emptyList())
+            reviewing.value = false
+            searching.value = true
             step.value = MenuStep.PROPOSITION
             _state.update { it.copy(chat = emptyList(), busy = true) }
             exchanging = true
@@ -448,11 +528,14 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
                         }
                     }
                 }
+                // Les propositions se passent en revue une par une avant le récap.
+                if (c.draft.get().isNotEmpty() && step.value == MenuStep.PROPOSITION) reviewing.value = true
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 chatError(e)
             } finally {
                 exchanging = false
+                searching.value = false
                 _state.update { it.copy(busy = c.chef.validating, progress = null) }
             }
         }
@@ -942,6 +1025,10 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
         c.model.cancel()
         job?.cancel()
         exchanging = false
+        if (searching.value) {
+            searching.value = false
+            step.value = MenuStep.REGLAGES
+        }
         _state.update { it.copy(busy = c.chef.validating) }
     }
 
@@ -962,8 +1049,9 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
         cancelWarm(clearLastAnswer = true)
         c.draft.set(emptyList())
         before = null
+        reviewing.value = false
         _state.update { it.copy(chat = emptyList(), canUndo = false) }
-        step.value = if (week.value.isNotEmpty()) MenuStep.SEMAINE else MenuStep.REGLAGES
+        step.value = MenuStep.ACCUEIL
     }
 
     override fun onCleared() {
@@ -989,7 +1077,7 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
         // Les recettes qui attendaient leurs étapes ne doivent pas rester en file pour le prochain menu.
         c.chef.cancelSteps()
         c.plan.clear()
-        step.value = MenuStep.REGLAGES
+        step.value = MenuStep.ACCUEIL
     }
 
     fun newMenu() { step.value = MenuStep.REGLAGES }
