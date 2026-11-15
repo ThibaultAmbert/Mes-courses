@@ -43,6 +43,9 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.PlainTooltip
+import androidx.compose.material.icons.filled.Autorenew
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
@@ -155,11 +158,18 @@ private fun logoUrl(domain: String) = "https://www.google.com/s2/favicons?domain
 
 @Composable
 internal fun SearchScreen(progress: String?, modelLoading: Boolean, onCancel: () -> Unit) {
-    val t = rememberInfiniteTransition(label = "orbit")
-    val outer by t.animateFloat(0f, 360f, infiniteRepeatable(tween(14000, easing = LinearEasing)), label = "outer")
-    val inner by t.animateFloat(360f, 0f, infiniteRepeatable(tween(22000, easing = LinearEasing)), label = "inner")
-    val pulse by t.animateFloat(1f, 1.18f, infiniteRepeatable(tween(1200), RepeatMode.Reverse), label = "pulse")
-    val bob by t.animateFloat(0f, -6f, infiniteRepeatable(tween(1200), RepeatMode.Reverse), label = "bob")
+    // Horloge d'affichage : l'animation tourne même quand Android réduit ou coupe les animations
+    // (économie d'énergie, accessibilité), ce qui figeait les transitions infinies.
+    var time by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    LaunchedEffect(Unit) {
+        val start = androidx.compose.runtime.withFrameNanos { it }
+        while (true) androidx.compose.runtime.withFrameNanos { now -> time = (now - start) / 1_000_000_000f }
+    }
+    val wave = (1f - cos(time * 2f * Math.PI.toFloat() / 2.4f)) / 2f
+    val outer = (time * 360f / 14f) % 360f
+    val inner = 360f - (time * 360f / 22f) % 360f
+    val pulse = 1f + 0.18f * wave
+    val bob = -6f * wave
     // Étapes réelles du moteur, déduites du message de progression.
     val stage = when {
         progress == null -> 0
@@ -597,14 +607,31 @@ private fun RecapRow(
                     Text("Enfants", style = MaterialTheme.typography.labelMedium)
                     RoundStepper(dish.portions.children, { onPortions(0, it - dish.portions.children) }, "Enfants", enabled = enabled, big = false, max = 20)
                 }
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    if (openable) TextButton(onClick = {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (openable) RoundAction(Icons.AutoMirrored.Filled.MenuBook, "Voir la recette", enabled = true) {
                         container.hintPortions(dish.recipeId, dish.sourceUrl, dish.portions)
                         dish.sourceUrl?.let(onOpen) ?: dish.recipeId?.let(onOpenRecipe)
-                    }) { Text("Voir la recette") }
-                    TextButton(onClick = onAnother, enabled = enabled) { Text("Autre recette") }
-                    TextButton(onClick = onInvent, enabled = enabled && ready) { Text("Le chef invente") }
+                    }
+                    RoundAction(Icons.Filled.Autorenew, "Autre recette", enabled = enabled, onClick = onAnother)
+                    RoundAction(Icons.Filled.AutoAwesome, "Le chef invente une recette à la place", enabled = enabled && ready, tint = MaterialTheme.colorScheme.primary, onClick = onInvent)
                 }
+            }
+        }
+    }
+}
+
+/** Action d'un plat en simple picto rond (le nom est lu par TalkBack et affiché à l'appui long). */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun RoundAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, enabled: Boolean, tint: Color = MaterialTheme.colorScheme.onSurface, onClick: () -> Unit) {
+    androidx.compose.material3.TooltipBox(
+        positionProvider = androidx.compose.material3.TooltipDefaults.rememberPlainTooltipPositionProvider(),
+        tooltip = { PlainTooltip { Text(label) } },
+        state = androidx.compose.material3.rememberTooltipState(),
+    ) {
+        Surface(onClick = onClick, enabled = enabled, shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.size(44.dp)) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(icon, label, Modifier.size(20.dp), tint = if (enabled) tint else MaterialTheme.colorScheme.outline)
             }
         }
     }
