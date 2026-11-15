@@ -140,6 +140,9 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
 
     fun childFactor(): Double = c.settings.current.childFactor
 
+    /** Résultat du dernier « Mieux mutualiser », affiché dans la fenêtre des ingrédients partagés. */
+    val sharingResult = MutableStateFlow<String?>(null)
+
     /** Propositions fraîches à passer en revue, une par une (garder / passer), avant le récap. */
     val reviewing = MutableStateFlow(false)
     val season = fr.mescourses.core.season.Seasonality.forMonth(java.time.LocalDate.now().month)
@@ -971,15 +974,14 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
                 pairings = c.pairings,
             )
             if (swap == null) {
-                _state.update { it.copy(message = "Le menu partage déjà bien ses ingrédients : aucune recette trouvée ne ferait mieux.") }
+                sharingResult.value = "Le menu partage déjà bien ses ingrédients : aucune recette trouvée ne ferait mieux."
             } else {
                 val at = mainIdx[swap.index]
                 val old = dishes[at]
+                snapshot()
                 reject(old)
                 c.draft.set(dishes.toMutableList().also { it[at] = swap.candidate.toDish(old.portions) })
-                _state.update {
-                    it.copy(message = "« ${old.title} » remplacé par « ${swap.candidate.recipe.title} » : ${swap.sharedAfter} ingrédients partagés avec les autres plats (au lieu de ${swap.sharedBefore}).")
-                }
+                sharingResult.value = "« ${old.title} » remplacé par « ${swap.candidate.recipe.title} » : ${swap.sharedAfter} ingrédients partagés avec les autres plats (au lieu de ${swap.sharedBefore})."
             }
         }
     }

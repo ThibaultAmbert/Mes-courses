@@ -90,6 +90,9 @@ import fr.mescourses.core.model.PlannedMeal
 import fr.mescourses.core.recipes.RecipeSites
 import fr.mescourses.core.season.Seasonality
 import kotlinx.coroutines.launch
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.draw.shadow
+import coil.compose.AsyncImage
 import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
@@ -143,8 +146,12 @@ private fun minutes(m: Int) = if (m >= 60) "${m / 60} h" + (if (m % 60 > 0) " ${
 
 // ---------- Étape 2 : le chef cherche ----------
 
-private val SITES = listOf("Mar" to Color.White, "Jow" to Cuisine.Basil, "HF" to Color(0xFFDCDCF7))
-private val SITES_INNER = listOf("750g" to Color(0xFFFFD6C7), "JdF" to Color.White, "Pic" to Cuisine.SaffronLight)
+/** Sites qui tournent autour du chef : orbite extérieure, puis intérieure. */
+private val SITES_OUTER = listOf("marmiton", "jow", "hellofresh", "cuisineaz")
+private val SITES_INNER = listOf("750g", "jdf", "picnic")
+
+/** Logo du site (icône publiée par le site, servie en PNG), lettres du nom en attendant ou si elle manque. */
+private fun logoUrl(domain: String) = "https://www.google.com/s2/favicons?domain=$domain&sz=128"
 
 @Composable
 internal fun SearchScreen(progress: String?, modelLoading: Boolean, onCancel: () -> Unit) {
@@ -167,8 +174,8 @@ internal fun SearchScreen(progress: String?, modelLoading: Boolean, onCancel: ()
             Box(Modifier.size(200.dp).graphicsLayer { scaleX = pulse; scaleY = pulse; alpha = 0.25f }.clip(CircleShape).background(Cuisine.Tomato))
             Box(Modifier.size(280.dp).border(1.dp, Color(0xFFEBC9AA), CircleShape))
             Box(Modifier.size(190.dp).border(1.dp, Color(0xFFEBC9AA), CircleShape))
-            SITES.forEachIndexed { i, (name, color) -> OrbitBadge(name, color, 140, outer + i * 120f, 44) }
-            SITES_INNER.forEachIndexed { i, (name, color) -> OrbitBadge(name, color, 95, inner + i * 120f + 60f, 38) }
+            SITES_OUTER.forEachIndexed { i, id -> OrbitBadge(id, 140, outer + i * 360f / SITES_OUTER.size, 52, i, outer) }
+            SITES_INNER.forEachIndexed { i, id -> OrbitBadge(id, 92, inner + i * 120f + 60f, 44, i + SITES_OUTER.size, outer) }
             Box(
                 Modifier.offset { IntOffset(0, bob.dp.roundToPx()) }.size(104.dp).clip(CircleShape).background(Cuisine.Tomato),
                 contentAlignment = Alignment.Center,
@@ -176,7 +183,7 @@ internal fun SearchScreen(progress: String?, modelLoading: Boolean, onCancel: ()
         }
         Column(Modifier.padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Text("Le chef cherche…", style = MaterialTheme.typography.headlineMedium, color = Cuisine.Coffee)
-            Text(progress ?: "Marmiton, Jow, HelloFresh, 750g, Journal des Femmes…", style = MaterialTheme.typography.bodyMedium, color = Cuisine.CoffeeMuted)
+            Text(progress ?: "Marmiton, Jow, HelloFresh, 750g, Journal des Femmes, Picnic…", style = MaterialTheme.typography.bodyMedium, color = Cuisine.CoffeeMuted)
             if (modelLoading) ModelLoadingCard()
             steps.forEachIndexed { i, label -> StepLine(label, done = i < stage, active = i == stage) }
         }
@@ -184,14 +191,39 @@ internal fun SearchScreen(progress: String?, modelLoading: Boolean, onCancel: ()
 }
 
 @Composable
-private fun OrbitBadge(name: String, color: Color, radius: Int, angle: Float, size: Int) {
+private fun OrbitBadge(siteId: String, radius: Int, angle: Float, size: Int, order: Int, clock: Float) {
+    val site = RecipeSites.byId(siteId) ?: return
+    // Arrivée en cascade, puis chaque logo « respire » à son tour pendant qu'il tourne.
+    val appear = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(order * 140L)
+        appear.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.5f, stiffness = 300f))
+    }
+    val beat = 1f + 0.12f * sin(Math.toRadians((clock * 4 + order * 60).toDouble())).toFloat().coerceAtLeast(0f)
     val rad = Math.toRadians(angle.toDouble())
     Box(
         Modifier
             .offset { IntOffset((cos(rad) * radius.dp.toPx()).roundToInt(), (sin(rad) * radius.dp.toPx()).roundToInt()) }
-            .size(size.dp).clip(CircleShape).background(color),
+            .graphicsLayer { val sc = appear.value * beat; scaleX = sc; scaleY = sc }
+            .size(size.dp)
+            .shadow(4.dp, CircleShape)
+            .clip(CircleShape)
+            .background(Color.White),
         contentAlignment = Alignment.Center,
-    ) { Text(name, style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold), color = Cuisine.Coffee) }
+    ) {
+        var loaded by remember { mutableStateOf(false) }
+        if (!loaded) Text(
+            site.name.split(' ').joinToString("") { it.take(1) }.take(3),
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+            color = Cuisine.Coffee,
+        )
+        AsyncImage(
+            model = logoUrl(site.domain),
+            contentDescription = site.name,
+            onSuccess = { loaded = true },
+            modifier = Modifier.size((size * 0.62f).dp).clip(RoundedCornerShape(6.dp)),
+        )
+    }
 }
 
 /** Ligne d'étape : faite (coche basilic), en cours (spinner tomate) ou à venir. */
@@ -212,12 +244,13 @@ private fun StepLine(label: String, done: Boolean, active: Boolean) {
 // ---------- Étape 2 : une recette par tuile ----------
 
 @Composable
-internal fun SwipeScreen(dishes: List<MenuDish>, targets: Triple<Int, Int, Int>, onFinish: (Set<String>) -> Unit) {
+internal fun SwipeScreen(dishes: List<MenuDish>, targets: Triple<Int, Int, Int>, onOpen: (MenuDish) -> Unit, onFinish: (Set<String>) -> Unit) {
     val cards = remember { dishes.sortedBy { it.courseRank } }
-    var index by remember { mutableIntStateOf(0) }
-    val kept = remember { mutableStateListOf<String>() }
-    val passed = remember { mutableStateListOf<String>() }
-    val history = remember { mutableStateListOf<Boolean>() }
+    // Gardé quand on ouvre le détail d'une recette puis qu'on revient : le tri reprend où il en était.
+    var index by rememberSaveable { mutableIntStateOf(0) }
+    var kept by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
+    var passed by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
+    var history by rememberSaveable { mutableStateOf(arrayListOf<Boolean>()) }
     val offset = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
 
@@ -226,8 +259,8 @@ internal fun SwipeScreen(dishes: List<MenuDish>, targets: Triple<Int, Int, Int>,
         scope.launch {
             offset.animateTo(if (keep) 1600f else -1600f, tween(220))
             val title = cards[index].title
-            if (keep) kept += title else passed += title
-            history += keep
+            if (keep) kept = ArrayList(kept + title) else passed = ArrayList(passed + title)
+            history = ArrayList(history + keep)
             index++
             offset.snapTo(0f)
             if (index >= cards.size) onFinish(passed.toSet())
@@ -236,10 +269,11 @@ internal fun SwipeScreen(dishes: List<MenuDish>, targets: Triple<Int, Int, Int>,
 
     fun undo() {
         if (history.isEmpty() || offset.isRunning) return
-        val wasKept = history.removeAt(history.lastIndex)
+        val wasKept = history.last()
+        history = ArrayList(history.dropLast(1))
         index--
         val title = cards[index].title
-        if (wasKept) kept.remove(title) else passed.remove(title)
+        if (wasKept) kept = ArrayList(kept - title) else passed = ArrayList(passed - title)
     }
 
     Column(Modifier.fillMaxSize()) {
@@ -269,6 +303,8 @@ internal fun SwipeScreen(dishes: List<MenuDish>, targets: Triple<Int, Int, Int>,
                 Box(Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 18.dp).clip(RoundedCornerShape(30.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh))
                 Box(Modifier.fillMaxSize().padding(start = 8.dp, end = 8.dp, top = 9.dp).clip(RoundedCornerShape(30.dp)).background(MaterialTheme.colorScheme.surfaceContainer))
                 Surface(
+                    onClick = { onOpen(dish) },
+                    enabled = dish.sourceUrl != null || dish.recipeId != null,
                     shape = RoundedCornerShape(30.dp),
                     color = MaterialTheme.colorScheme.surfaceContainerLowest,
                     shadowElevation = 6.dp,
@@ -309,7 +345,7 @@ internal fun SwipeScreen(dishes: List<MenuDish>, targets: Triple<Int, Int, Int>,
             }
         }
         Text(
-            "Glisse à droite pour garder, à gauche pour passer",
+            "Glisse à droite pour garder, à gauche pour passer · touche la carte pour la recette",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 8.dp, bottom = 16.dp),
@@ -380,6 +416,7 @@ internal fun RecapScreen(
     shared: Int,
     onBack: () -> Unit,
     onAdjust: () -> Unit,
+    onShowSharing: () -> Unit,
     onPortions: (Int, Int, Int) -> Unit,
     onAnother: (Int) -> Unit,
     onInvent: (Int) -> Unit,
@@ -413,7 +450,13 @@ internal fun RecapScreen(
         Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 8.dp), verticalAlignment = Alignment.Bottom) {
             Column(Modifier.weight(1f)) {
                 Text("Ta sélection", style = MaterialTheme.typography.headlineMedium)
-                Text("$articles articles · $shared ingrédients partagés", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                // Touchée : la liste des ingrédients partagés, avec « Mieux mutualiser ».
+                Surface(onClick = onShowSharing, shape = RoundedCornerShape(50), color = Cuisine.BasilLight, modifier = Modifier.padding(top = 4.dp)) {
+                    Row(Modifier.padding(start = 12.dp, end = 6.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("$articles articles · $shared ingrédients partagés", style = MaterialTheme.typography.labelLarge, color = Cuisine.Coffee)
+                        Icon(Icons.AutoMirrored.Filled.ArrowForward, "Voir les ingrédients partagés", Modifier.padding(start = 4.dp).size(16.dp), tint = Cuisine.Coffee)
+                    }
+                }
             }
             Text("${dishes.size}", style = MaterialTheme.typography.displaySmall)
             Text("/$target", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 6.dp))

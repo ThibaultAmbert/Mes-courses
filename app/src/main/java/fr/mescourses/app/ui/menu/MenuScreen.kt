@@ -124,6 +124,7 @@ private enum class Screen { HOME, PARAMS, SEARCH, SWIPE, RECAP, PREPARATION, WEE
 @Composable
 fun MenuScreen(onOpenSettings: () -> Unit, onOpenRecipe: (Long) -> Unit, onOpenShopping: () -> Unit, onOpenPreview: (String) -> Unit = {}) {
     val vm = containerViewModel { MenuViewModel(it) }
+    val container = fr.mescourses.app.ui.common.appContainer()
     val state by vm.state.collectAsStateWithLifecycle()
     val step by vm.step.collectAsStateWithLifecycle()
     val searching by vm.searching.collectAsStateWithLifecycle()
@@ -149,6 +150,8 @@ fun MenuScreen(onOpenSettings: () -> Unit, onOpenRecipe: (Long) -> Unit, onOpenS
     var inventFor by remember { mutableStateOf<Int?>(null) }
     val snackbar = remember { SnackbarHostState() }
     var chatOpen by remember { mutableStateOf(false) }
+    var sharingOpen by remember { mutableStateOf(false) }
+    val sharingResult by vm.sharingResult.collectAsStateWithLifecycle()
     val ready = state.model.available
     val askNotifications = rememberNotificationPermission()
 
@@ -202,6 +205,10 @@ fun MenuScreen(onOpenSettings: () -> Unit, onOpenRecipe: (Long) -> Unit, onOpenS
                 Screen.SEARCH -> SearchScreen(progress = state.progress, modelLoading = state.model == ModelStatus.Loading, onCancel = vm::stop)
                 Screen.SWIPE -> SwipeScreen(
                     dishes = dishes, targets = vm.targets(),
+                    onOpen = { d ->
+                        container.hintPortions(d.recipeId, d.sourceUrl, d.portions)
+                        d.sourceUrl?.let(onOpenPreview) ?: d.recipeId?.let(onOpenRecipe)
+                    },
                     onFinish = { passed -> vm.finishReview(passed) },
                 )
                 Screen.RECAP -> RecapScreen(
@@ -210,6 +217,7 @@ fun MenuScreen(onOpenSettings: () -> Unit, onOpenRecipe: (Long) -> Unit, onOpenS
                     articles = preview?.items ?: insights.articles, shared = overlap.shared.size,
                     onBack = vm::goHome,
                     onAdjust = { chatOpen = true },
+                    onShowSharing = { vm.sharingResult.value = null; sharingOpen = true },
                     onPortions = vm::changePortions,
                     onAnother = vm::anotherRecipe,
                     onInvent = { inventFor = it },
@@ -243,6 +251,16 @@ fun MenuScreen(onOpenSettings: () -> Unit, onOpenRecipe: (Long) -> Unit, onOpenS
             replacing = dishes.getOrNull(target)?.title,
             onDismiss = { inventFor = null },
             onCreate = { idea -> inventFor = null; vm.invent(target.takeIf { it >= 0 }, idea) },
+        )
+    }
+
+    if (sharingOpen && onTop) {
+        SharingSheet(
+            dishes = dishes, report = overlap, insights = insights, preview = preview,
+            busy = state.busy, canUndo = state.canUndo, result = sharingResult,
+            canImprove = overlap.isolated.size > 1,
+            onImprove = vm::improveSharing, onUndo = { vm.undo(); vm.sharingResult.value = "Dernier changement annulé." },
+            onDismiss = { sharingOpen = false },
         )
     }
 
@@ -439,27 +457,16 @@ private fun HomeScreen(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).statusBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 4.dp)) {
             Text(
-                java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("EEEE d MMMM", java.util.Locale.FRENCH))
-                    .replaceFirstChar { it.uppercase() },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                "On prévoit quoi ?",
+                style = MaterialTheme.typography.headlineLarge.copy(fontSize = 32.sp, letterSpacing = (-0.5).sp),
                 modifier = Modifier.weight(1f).padding(start = 4.dp),
             )
-            Surface(onClick = onOpenSettings, shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.surfaceContainerLowest) {
-                Row(Modifier.padding(start = 12.dp, end = 16.dp, top = 11.dp, bottom = 11.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Settings, null, Modifier.size(20.dp))
-                    Spacer(Modifier.size(8.dp))
-                    Text("Paramètres", style = MaterialTheme.typography.labelLarge)
-                }
+            Surface(onClick = onOpenSettings, shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerLowest, modifier = Modifier.size(48.dp)) {
+                Box(contentAlignment = Alignment.Center) { Icon(Icons.Filled.Settings, "Paramètres", Modifier.size(22.dp)) }
             }
         }
-        Text(
-            "On prévoit quoi ?",
-            style = MaterialTheme.typography.headlineLarge.copy(fontSize = 34.sp, letterSpacing = (-0.5).sp),
-            modifier = Modifier.padding(start = 4.dp, bottom = 4.dp),
-        )
 
         // Menu de la semaine : seulement s'il existe.
         if (week.isNotEmpty()) {
@@ -960,5 +967,151 @@ private fun ChatBubble(line: ChatLine) {
                 .background(if (line.fromUser) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh)
                 .padding(horizontal = 14.dp, vertical = 10.dp),
         )
+    }
+}
+
+/**
+ * Liste de courses du menu en cours : ce que les plats partagent (et quels plats), ce qui ne sert qu'à un plat,
+ * ce qui restera. « Mieux mutualiser » remplace un plat par une recette qui réutilise davantage les mêmes ingrédients ;
+ * le résultat s'affiche ici, et le changement peut être annulé.
+ */
+@Composable
+private fun SharingSheet(
+    dishes: List<MenuDish>,
+    report: fr.mescourses.core.menu.IngredientOverlap.Report,
+    insights: fr.mescourses.core.menu.MenuInsights,
+    preview: fr.mescourses.core.menu.ShoppingPreview?,
+    busy: Boolean,
+    canUndo: Boolean,
+    result: String?,
+    canImprove: Boolean,
+    onImprove: () -> Unit,
+    onUndo: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var showIsolated by remember { mutableStateOf(false) }
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, contentWindowInsets = { WindowInsets(0) }) {
+        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Ta liste de courses", style = MaterialTheme.typography.titleLarge)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(
+                    "${preview?.items ?: insights.articles}" to "articles",
+                    "${report.shared.size}" to "partagés",
+                    "${insights.seasonal.size}" to "de saison",
+                ).forEachIndexed { i, (n, label) ->
+                    Column(
+                        Modifier.weight(1f).clip(RoundedCornerShape(16.dp))
+                            .background(if (i == 1) Cuisine.BasilLight else MaterialTheme.colorScheme.surfaceContainerLow)
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                    ) {
+                        Text(n, style = MaterialTheme.typography.titleLarge, color = if (i == 1) Cuisine.Coffee else MaterialTheme.colorScheme.onSurface)
+                        Text(label, style = MaterialTheme.typography.labelMedium, color = if (i == 1) Cuisine.Coffee else MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            LazyColumn(
+                Modifier.fillMaxWidth().weight(1f, fill = false).heightIn(max = 420.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                item {
+                    Text(
+                        "PARTAGÉS ENTRE PLUSIEURS PLATS",
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold, letterSpacing = 1.sp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (report.shared.isEmpty()) item {
+                    Text("Aucun ingrédient ne sert à plusieurs plats pour l'instant.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                items(report.shared, key = { it.name }) { u ->
+                    val used = u.dishes.mapNotNull { dishes.getOrNull(it - 1) }
+                    Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceContainerLowest) {
+                        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(u.name.replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.titleSmall)
+                                Text(
+                                    used.joinToString(" · ") { it.title },
+                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            Box(Modifier.size(width = (28 + 18 * (used.size.coerceAtMost(3) - 1)).dp, height = 28.dp)) {
+                                used.take(3).forEachIndexed { i, d ->
+                                    DishArt(
+                                        d.title, d.mainIngredients, imageUrl = d.imageUrl, emojiSize = 12,
+                                        modifier = Modifier.offset(x = (i * 18).dp).size(28.dp).clip(CircleShape)
+                                            .border(2.dp, MaterialTheme.colorScheme.surfaceContainerLowest, CircleShape),
+                                    )
+                                }
+                            }
+                            Text("×${u.dishes.size}", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(start = 8.dp))
+                        }
+                    }
+                }
+                if (report.isolated.isNotEmpty()) item {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { showIsolated = !showIsolated }.padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                "POUR UN SEUL PLAT · ${report.isolated.size}",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold, letterSpacing = 1.sp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f),
+                            )
+                            Icon(if (showIsolated) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, if (showIsolated) "Replier" else "Déplier")
+                        }
+                        if (showIsolated) FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            report.isolated.forEach { u ->
+                                Text(
+                                    u.name, style = MaterialTheme.typography.labelMedium,
+                                    modifier = Modifier.clip(RoundedCornerShape(50)).background(MaterialTheme.colorScheme.surfaceContainerLow).padding(horizontal = 10.dp, vertical = 5.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+                if (!preview?.leftovers.isNullOrEmpty()) item {
+                    Text("Il restera : " + preview?.leftovers.orEmpty().joinToString(", ") + ".", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (insights.outOfSeason.isNotEmpty()) item {
+                    Text(
+                        "Hors saison : " + insights.outOfSeason.joinToString(", ") { (n, name) -> "$name (${dishes.getOrNull(n - 1)?.title ?: "plat $n"})" },
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary,
+                    )
+                }
+            }
+            result?.let {
+                Text(
+                    it, style = MaterialTheme.typography.bodySmall, color = Cuisine.Coffee,
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Cuisine.SaffronLight).padding(12.dp),
+                )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (canUndo) TextButton(onClick = onUndo, enabled = !busy) { Text("Annuler") }
+                Surface(
+                    onClick = onImprove, enabled = canImprove && !busy,
+                    shape = RoundedCornerShape(30.dp),
+                    color = if (canImprove && !busy) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest,
+                    modifier = Modifier.weight(1f).height(56.dp),
+                ) {
+                    Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                        if (busy) androidx.compose.material3.CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                        else Icon(Icons.Filled.AutoAwesome, null, Modifier.size(18.dp), tint = if (canImprove) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.size(8.dp))
+                        Text(
+                            "Mieux mutualiser", style = MaterialTheme.typography.titleSmall,
+                            color = if (canImprove && !busy) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+            Text(
+                "Le chef remplace un plat par une recette qui réutilise davantage les mêmes ingrédients. Entrées et desserts restent en place.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(8.dp))
+        }
     }
 }
