@@ -95,10 +95,9 @@ data class CatalogStatus(
 
 /**
  * Les bases de recettes (une par site) : chacune se télécharge à la demande depuis la release « catalogue » du dépôt
- * (refaite chaque jour par la CI) ; à défaut de réseau à la première installation, la copie embarquée dans l'appli
- * sert de secours. Au lancement (hors données mobiles) ou sur demande, l'appli vérifie d'abord s'il existe une base CI
- * plus récente pour les sites installés, l'importe, puis complète en scannant les nouveautés sur les sites (au plus
- * une fois par jour en automatique).
+ * (refaite chaque jour par la CI), sans être embarquée dans l'APK. Au lancement (hors données mobiles) ou sur demande,
+ * l'appli vérifie d'abord s'il existe une base CI plus récente pour les sites installés, l'importe, puis complète en
+ * scannant les nouveautés sur les sites (au plus une fois par jour en automatique).
  */
 class CatalogSync(
     private val context: Context,
@@ -162,10 +161,9 @@ class CatalogSync(
                 for (id in siteIds) {
                     if (CatalogSources.byId(id) == null) continue
                     val name = siteName(id)
-                    val alreadyInstalled = id in status.value.installed
                     status.update { it.copy(installing = id, working = "$name : téléchargement…") }
                     try {
-                        results += "$name : %,d".format(java.util.Locale.FRANCE, installOne(id, allowEmbeddedFallback = !alreadyInstalled))
+                        results += "$name : %,d".format(java.util.Locale.FRANCE, installOne(id))
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
@@ -298,7 +296,7 @@ class CatalogSync(
             val name = siteName(id)
             status.update { it.copy(installing = id, working = "$name : mise à jour de la base…") }
             try {
-                installOne(id, allowEmbeddedFallback = false)
+                installOne(id)
                 ciUpdated += name
             } catch (e: CancellationException) {
                 throw e
@@ -441,44 +439,26 @@ class CatalogSync(
     }
 
     /**
-     * Installe ou met à jour une base : téléchargée depuis la release CI si possible, sinon prise dans la copie
-     * embarquée lorsque [allowEmbeddedFallback] est vrai (première installation hors-ligne). Renvoie le nombre de recettes.
+     * Installe ou met à jour une base téléchargée depuis la release CI « catalogue ». Renvoie le nombre de recettes.
      */
-    private suspend fun installOne(siteId: String, allowEmbeddedFallback: Boolean = true): Int = withContext(Dispatchers.IO) {
+    private suspend fun installOne(siteId: String): Int = withContext(Dispatchers.IO) {
         if (status.value.remote.isEmpty()) loadRemote()
+        val remote = status.value.remote[siteId]
+            ?: error("téléchargement depuis la release impossible (vérifie ta connexion)")
         val file = File(context.cacheDir, "base-$siteId.jsonl.gz")
         try {
-            val remote = status.value.remote[siteId]
-            var version = status.value.remoteVersion
-            var downloaded = false
-            if (remote != null) {
-                try {
-                    download(remote, file) { done ->
-                        status.update {
-                            it.copy(
-                                working = "${siteName(siteId)} : téléchargement… (${done / 1_000_000} Mo" + (if (remote.bytes > 0) " sur ${remote.bytes / 1_000_000} Mo)" else ")"),
-                                installProgress = if (remote.bytes > 0) (done.toFloat() / remote.bytes).coerceIn(0f, 1f) else null,
-                            )
-                        }
-                    }
-                    downloaded = true
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    Log.w(TAG, "Téléchargement de $siteId", e)
+            download(remote, file) { done ->
+                status.update {
+                    it.copy(
+                        working = "${siteName(siteId)} : téléchargement… (${done / 1_000_000} Mo" + (if (remote.bytes > 0) " sur ${remote.bytes / 1_000_000} Mo)" else ")"),
+                        installProgress = if (remote.bytes > 0) (done.toFloat() / remote.bytes).coerceIn(0f, 1f) else null,
+                    )
                 }
-            }
-            if (!downloaded) {
-                if (!allowEmbeddedFallback) error("téléchargement depuis la release impossible")
-                // Hors ligne ou release absente : la copie embarquée dans l'appli (date de la compilation).
-                val asset = embeddedName(siteId) ?: error("pas de connexion et aucune copie dans l'appli")
-                context.assets.open("$DIR/$asset").use { input -> file.outputStream().use { input.copyTo(it) } }
-                version = embeddedVersion()
             }
             val importedUrls = importFile(siteId, file)
             check(importedUrls.isNotEmpty()) { "fichier vide" }
             store.pruneSite(siteId, importedUrls)
-            store.setMeta(versionKey(siteId), version ?: "inconnue")
+            store.setMeta(versionKey(siteId), status.value.remoteVersion ?: "inconnue")
             importedUrls.size
         } finally {
             file.delete()
@@ -526,14 +506,6 @@ class CatalogSync(
         return importedUrls
     }
 
-    /** Nom du fichier embarqué pour ce site (`assets/catalog/<site>.jsonl(.gz)`), s'il y en a un. */
-    private fun embeddedName(siteId: String): String? =
-        runCatching { context.assets.list(DIR).orEmpty() }.getOrDefault(emptyArray())
-            .firstOrNull { it == "$siteId.jsonl.gz" || it == "$siteId.jsonl" }
-
-    private fun embeddedVersion(): String =
-        runCatching { context.assets.open("$DIR/version.txt").bufferedReader().use { it.readText().trim() } }.getOrDefault("embarquée")
-
     private fun versionKey(siteId: String) = "version:$siteId"
     private fun siteName(siteId: String) = RecipeSites.byId(siteId)?.name ?: siteId
 
@@ -562,7 +534,6 @@ class CatalogSync(
 
     companion object {
         private const val TAG = "CatalogSync"
-        private const val DIR = "catalog"
         private const val REPO = "ThibaultAmbert/Mes-courses"
         private const val TAG_NAME = "catalogue"
         private const val SETUP_DONE = "choix-des-bases-vu"

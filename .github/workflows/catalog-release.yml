@@ -23,7 +23,7 @@ on:
         description: "Relancer android.yml après la publication"
         required: false
         type: boolean
-        default: true
+        default: false
 
 permissions:
   contents: write
@@ -491,7 +491,7 @@ jobs:
             echo "Aucun fichier *.source.jsonl.gz dans la release : catalogue-complet.gz non reconstruit."
           fi
 
-      # L'APK embarque les bases à la compilation : on la relance sur la branche courante (sur main, elle publie aussi la mise à jour).
+      # Recompilation optionnelle de l'APK après publication (désactivée par défaut : l'appli télécharge les bases).
       - name: Recompiler l'appli
         if: inputs.rebuild_android
         run: |

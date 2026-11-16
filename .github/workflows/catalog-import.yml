@@ -1,8 +1,7 @@
 name: Catalogue — import de la base consolidée
 
 # Mise en service du catalogue vectorisé : découpe la base consolidée (tools/catalog/data/catalogue-rationalise-v2.jsonl.gz),
-# migre une seule fois les anciens <site>.jsonl.gz en <site>.source.jsonl.gz, calcule les vecteurs, publie la release
-# « catalogue », puis relance la compilation de l'APK.
+# migre une seule fois les anciens <site>.jsonl.gz en <site>.source.jsonl.gz, calcule les vecteurs et publie la release « catalogue ».
 on:
   workflow_dispatch:
     inputs:
@@ -10,7 +9,7 @@ on:
         description: "Relancer la compilation de l'APK après publication"
         type: boolean
         required: false
-        default: true
+        default: false
 
 permissions:
   contents: write

@@ -94,18 +94,16 @@ les sites » de Découvrir garde la recherche en ligne en complément.
   téléchargée depuis GitHub) : recherche, tous les filtres de la base (durées, notes, saison, ingrédients, dates…), fiches à contrôler, tableau par site ;
   onglet **Ingrédients & mapping** : une clé par produit ; regroupement en un clic des clés proches, clé à donner aux lignes
   sans clé, rayon et terme de recherche drive calculés comme dans l'appli (modifiables) ; export JSON/CSV.
-- **Mise à jour hebdomadaire** : le workflow « Catalogue — mise à jour hebdomadaire » (`catalog-weekly.yml`, chaque dimanche, ou
-  « Run workflow ») repart des bases déjà publiées, ne lit que les fiches nouvelles ou modifiées de chaque site, republie la
-  release « catalogue » (bases `<site>.jsonl.gz`, état de lecture `<site>.seen.tsv.gz`, `version.txt`), puis relance « Build APK »
-  pour que l'APK embarque les bases à jour. Un site sans base publiée est ignoré (la première collecte se fait avec les workflows
-  ci-dessus). Les déclencheurs planifiés ne tournent que sur `main`.
-- **Dans l'appli** : une base par site, **téléchargée à la demande** depuis la release « catalogue ». Au premier lancement,
-  l'écran « Bases de recettes » s'affiche en premier (Tout télécharger, ou site par site, ou Passer) ; il reste accessible dans
-  Réglages › Bases de recettes (télécharger, mettre à jour quand une version plus récente est publiée, supprimer). Sans réseau,
-  la copie embarquée dans l'APK (`assets/catalog/`, avec `version.txt`) sert de secours. Dans les filtres de Découvrir, un site
-  dont la base n'est pas téléchargée est grisé, non sélectionnable ; le toucher ouvre l'écran de choix. Seules les bases
-  téléchargées sont tenues à jour par le téléphone (nouveautés des sites, une fois par jour à l'ouverture, hors données mobiles,
-  ou à la demande dans Réglages).
+- **Mise à jour quotidienne** : le workflow « Catalogue — mise à jour quotidienne » (`catalog-daily.yml`, chaque nuit, ou
+  « Run workflow ») repart des bases déjà publiées, ne lit que les fiches nouvelles ou modifiées de chaque site et republie la
+  release « catalogue » (bases `<site>.jsonl.gz`, état de lecture `<site>.seen.tsv.gz`, `version.txt`) sans recompiler l'APK. Un site
+  sans base publiée est ignoré (la première collecte se fait avec les workflows ci-dessus). Les déclencheurs planifiés ne tournent que sur `main`.
+- **Dans l'appli** : une base par site, **téléchargée à la demande** depuis la release « catalogue » (aucune base n'est embarquée
+  dans l'APK afin d'en limiter la taille). Au premier lancement, l'écran « Bases de recettes » s'affiche en premier (Tout télécharger,
+  ou site par site, ou Passer) ; il reste accessible dans Réglages › Bases de recettes (télécharger, mettre à jour quand une version
+  plus récente est publiée, supprimer). Dans les filtres de Découvrir, un site dont la base n'est pas téléchargée est grisé, non
+  sélectionnable ; le toucher ouvre l'écran de choix. Seules les bases téléchargées sont tenues à jour par le téléphone (nouveautés
+  des sites, une fois par jour à l'ouverture, hors données mobiles, ou à la demande dans Réglages).
 
 ### Honor / MagicOS
 
