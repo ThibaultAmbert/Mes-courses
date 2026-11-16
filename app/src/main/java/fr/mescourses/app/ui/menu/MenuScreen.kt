@@ -3,17 +3,14 @@
 package fr.mescourses.app.ui.menu
 
 import android.Manifest
+import fr.mescourses.app.ui.components.BusyBar
+import fr.mescourses.app.ui.components.Spinner
 import android.content.pm.PackageManager
 import android.os.Build
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.ui.platform.LocalContext
-import androidx.core.content.ContextCompat
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -21,128 +18,102 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.style.TextOverflow
-import fr.mescourses.core.menu.Candidate
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyItemScope
-import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Autorenew
-import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.InputChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SuggestionChip
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import fr.mescourses.app.ui.common.appContainer
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fr.mescourses.app.llm.ModelStatus
-import fr.mescourses.app.ui.components.ChefCard
-import fr.mescourses.app.ui.components.MODEL_LOADING_TEXT
-import fr.mescourses.app.ui.components.MODEL_LOADING_TITLE
-import fr.mescourses.app.ui.components.ModelLoadingCard
-import fr.mescourses.app.work.Validation
-import fr.mescourses.app.ui.common.ScreenScaffold
 import fr.mescourses.app.ui.common.containerViewModel
-import fr.mescourses.app.ui.components.BalanceDots
-import fr.mescourses.app.ui.components.BottomActionBar
 import fr.mescourses.app.ui.components.DishArt
-import fr.mescourses.app.ui.components.EmptyState
-import fr.mescourses.app.ui.components.IngredientChip
-import fr.mescourses.app.ui.components.InfoBanner
-import fr.mescourses.app.ui.components.MiniStepper
-import fr.mescourses.app.ui.components.PillStepper
-import fr.mescourses.app.ui.components.SectionCard
-import fr.mescourses.app.ui.components.SectionHeader
-import fr.mescourses.app.ui.components.StatChip
-import fr.mescourses.app.ui.components.StepIndicator
-import fr.mescourses.app.ui.components.balanceHint
+import fr.mescourses.app.ui.components.ModelLoadingCard
+import fr.mescourses.app.ui.theme.Cuisine
 import fr.mescourses.core.catalog.Course
+import fr.mescourses.core.menu.Candidate
 import fr.mescourses.core.menu.CookingTime
 import fr.mescourses.core.menu.DishKind
-import fr.mescourses.core.menu.IngredientOverlap
-import fr.mescourses.core.menu.MenuInsights
 import fr.mescourses.core.menu.Novelty
-import fr.mescourses.core.menu.ShoppingPreview
-import fr.mescourses.core.recipes.RecipeSites
-import fr.mescourses.core.season.Seasonality
-import fr.mescourses.core.menu.PlateBalance
 import fr.mescourses.core.model.MenuDish
 import fr.mescourses.core.model.PlannedMeal
-import fr.mescourses.core.shopping.ShoppingListMerger
 
 private val CHAT_SUGGESTIONS = listOf(
     "Ajoute 2 adultes au plat 1",
@@ -151,117 +122,133 @@ private val CHAT_SUGGESTIONS = listOf(
     "Cherche un curry de légumes",
 )
 
+/** Ce que montre l'onglet Envie, selon l'étape et le travail du chef. */
+private enum class Screen { HOME, PARAMS, SEARCH, SWIPE, RECAP, PREPARATION, WEEK }
+
 @Composable
 fun MenuScreen(onOpenSettings: () -> Unit, onOpenRecipe: (Long) -> Unit, onOpenShopping: () -> Unit, onOpenPreview: (String) -> Unit = {}) {
     val vm = containerViewModel { MenuViewModel(it) }
+    val container = fr.mescourses.app.ui.common.appContainer()
     val state by vm.state.collectAsStateWithLifecycle()
     val step by vm.step.collectAsStateWithLifecycle()
+    val searching by vm.searching.collectAsStateWithLifecycle()
+    val reviewing by vm.reviewing.collectAsStateWithLifecycle()
     val dishes by vm.dishes.collectAsStateWithLifecycle()
     val week by vm.week.collectAsStateWithLifecycle()
     val pendingSteps by vm.pendingSteps.collectAsStateWithLifecycle()
     val stepsProgress by vm.stepsProgress.collectAsStateWithLifecycle()
     val recipeImages by vm.recipeImages.collectAsStateWithLifecycle()
-    val favorites by vm.favoriteIds.collectAsStateWithLifecycle()
     val overlap by vm.overlap.collectAsStateWithLifecycle()
     val insights by vm.insights.collectAsStateWithLifecycle()
     val preview by vm.shoppingPreview.collectAsStateWithLifecycle()
+    val planned by vm.planned.collectAsStateWithLifecycle()
+    val draftServings by vm.draftServings.collectAsStateWithLifecycle()
+    val bookServings by vm.bookServings.collectAsStateWithLifecycle()
+    // Les fenêtres (ajout, discussion) ne s'affichent que sur cet écran : quand une recette est ouverte par-dessus,
+    // elles disparaissent pour que le bouton Retour du téléphone revienne bien ici (et les rouvre).
+    val lifecycleState by androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsStateWithLifecycle()
+    val onTop = lifecycleState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
+    var pickerQuery by rememberSaveable { mutableStateOf("") }
+    LaunchedEffect(state.picker == null) { if (state.picker == null) pickerQuery = "" }
     // Demande de recette inventée : null = fermé ; -1 = plat en plus ; sinon l'index du plat à remplacer.
     var inventFor by remember { mutableStateOf<Int?>(null) }
     val snackbar = remember { SnackbarHostState() }
     var chatOpen by remember { mutableStateOf(false) }
+    var sharingOpen by remember { mutableStateOf(false) }
+    val sharingResult by vm.sharingResult.collectAsStateWithLifecycle()
+    val sharingBusy by vm.sharingBusy.collectAsStateWithLifecycle()
     val ready = state.model.available
     val askNotifications = rememberNotificationPermission()
 
     LaunchedEffect(state.message) { state.message?.let { snackbar.showSnackbar(it); vm.consumeMessage() } }
 
-    ScreenScaffold(
-        title = "Menu de la semaine",
-        onOpenSettings = onOpenSettings,
-        snackbar = snackbar,
-        bottomBar = {
-            // Le bouton reste sous le pouce, quel que soit l'endroit du formulaire.
-            val bottomMode = when {
-                state.validation != null -> null
-                step == MenuStep.REGLAGES -> MenuStep.REGLAGES
-                step == MenuStep.PROPOSITION && dishes.isNotEmpty() -> MenuStep.PROPOSITION
-                else -> null
-            }
-            AnimatedContent(
-                targetState = bottomMode,
-                transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(140)) },
-                label = "bottomBar",
-            ) { mode ->
-                when (mode) {
-                    MenuStep.REGLAGES -> BottomActionBar {
-                        Button(
-                            onClick = { askNotifications(); vm.propose() },
-                            enabled = !state.busy,
-                            modifier = Modifier.weight(1f).height(52.dp),
-                        ) {
-                            Icon(Icons.Filled.AutoAwesome, null)
-                            Spacer(Modifier.size(8.dp))
-                            Text("Composer mon menu de " + listOfNotNull(
-                                state.starters.takeIf { it > 0 }?.let { "$it entrée${if (it > 1) "s" else ""}" },
-                                "${state.meals} plat${if (state.meals > 1) "s" else ""}",
-                                state.desserts.takeIf { it > 0 }?.let { "$it dessert${if (it > 1) "s" else ""}" },
-                            ).joinToString(", "), style = MaterialTheme.typography.titleSmall)
-                        }
-                    }
-                    MenuStep.PROPOSITION -> BottomActionBar {
-                        OutlinedButton(onClick = { chatOpen = true }) {
-                            Icon(Icons.Filled.ChatBubbleOutline, null, Modifier.size(18.dp))
-                            Spacer(Modifier.size(6.dp))
-                            Text("Ajuster")
-                        }
-                        Button(onClick = { askNotifications(); vm.validate() }, enabled = !state.busy, modifier = Modifier.weight(1f)) {
-                            Icon(Icons.Filled.Check, null, Modifier.size(18.dp))
-                            Spacer(Modifier.size(6.dp))
-                            Text("Valider le menu")
-                        }
-                    }
-                    null, MenuStep.SEMAINE -> {}
-                }
-            }
-        },
+    // « Continuer en arrière-plan » : la préparation continue, l'écran revient à l'accueil.
+    var prepHidden by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(state.validation == null) { if (state.validation == null) prepHidden = false }
+    var lastValidation by remember { mutableStateOf(state.validation) }
+    if (state.validation != null) lastValidation = state.validation
+
+    val screen = when {
+        state.validation != null && !prepHidden -> Screen.PREPARATION
+        step == MenuStep.ACCUEIL -> Screen.HOME
+        step == MenuStep.REGLAGES -> Screen.PARAMS
+        step == MenuStep.SEMAINE -> Screen.WEEK
+        searching || (dishes.isEmpty() && state.busy) -> Screen.SEARCH
+        reviewing && dishes.isNotEmpty() -> Screen.SWIPE
+        else -> Screen.RECAP
+    }
+
+    // Retour : on remonte vers l'accueil (la recherche s'arrête avec la croix, pas par erreur).
+    BackHandler(enabled = screen in setOf(Screen.PARAMS, Screen.RECAP, Screen.WEEK)) {
+        if (screen == Screen.RECAP && state.busy) vm.stop() else vm.goHome()
+    }
+
+    Scaffold(
+        contentWindowInsets = WindowInsets(0),
+        containerColor = MaterialTheme.colorScheme.background,
+        snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize()) {
-            StepIndicator(
-                steps = MenuStep.entries.map { it.label },
-                current = step.ordinal,
-                onStep = { vm.goTo(MenuStep.entries[it]) },
-                enabled = { i ->
-                    when (MenuStep.entries[i]) {
-                        MenuStep.REGLAGES -> !state.busy
-                        MenuStep.PROPOSITION -> dishes.isNotEmpty()
-                        MenuStep.SEMAINE -> week.isNotEmpty() && !state.busy
-                    }
-                },
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-            )
-            var lastValidation by remember { mutableStateOf(state.validation) }
-            if (state.validation != null) lastValidation = state.validation
-            AnimatedContent(
-                targetState = if (state.validation != null) null else step,
-                transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(120)) },
-                label = "step",
-                modifier = Modifier.weight(1f),
-            ) { target ->
-                when (target) {
-                    null -> (state.validation ?: lastValidation)?.let { ValidationProgress(it, dishes, state.model == ModelStatus.Loading) }
-                    MenuStep.REGLAGES -> SettingsStep(vm, state, onOpenSettings)
-                    MenuStep.PROPOSITION -> ProposalStep(
-                        dishes = dishes, favorites = favorites, overlap = overlap, insights = insights, preview = preview,
-                        state = state, ready = ready,
-                        onPortions = vm::changePortions, onAnother = vm::anotherRecipe, onInvent = { inventFor = it ?: -1 },
-                        onOpen = onOpenPreview, onOpenRecipe = onOpenRecipe, onRemove = vm::removeDish, onAdd = vm::openPicker,
-                        onImprove = vm::improveSharing, onClear = vm::clearDraft,
-                    )
-                    MenuStep.SEMAINE -> WeekStep(
-                        images = recipeImages, stepsProgress = stepsProgress, onStopGenerating = vm::stopGeneratingSteps, pendingSteps = pendingSteps, chefInstalled = state.model != ModelStatus.Absent, onGenerate = vm::generateMissingSteps,
-                        week = week, onToggle = vm::toggleCooked, onOpenRecipe = onOpenRecipe,
-                        onOpenShopping = onOpenShopping, onNewMenu = vm::newMenu, onClear = vm::clearWeek,
-                    )
+        AnimatedContent(
+            targetState = screen,
+            transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(120)) },
+            label = "screen",
+            modifier = Modifier.padding(padding).fillMaxSize(),
+        ) { target ->
+            when (target) {
+                Screen.HOME -> HomeScreen(
+                    week = week, draft = dishes,
+                    onOpenSettings = onOpenSettings,
+                    onOpenWeek = { vm.goTo(MenuStep.SEMAINE) },
+                    onContinueDraft = vm::continueDraft,
+                    onCompleteDraft = vm::completeDraft,
+                    onClearDraft = vm::clearDraft,
+                    onNewMenu = vm::newMenu,
+                )
+                Screen.PARAMS -> ParamsScreen(
+                    vm = vm, state = state,
+                    onClose = vm::goHome,
+                    onLaunch = { askNotifications(); vm.propose() },
+                )
+                Screen.SEARCH -> SearchScreen(progress = state.progress, modelLoading = state.model == ModelStatus.Loading, onCancel = vm::stop)
+                Screen.SWIPE -> SwipeScreen(
+                    dishes = dishes, targets = vm.targets(),
+                    onOpen = { d ->
+                        container.hintPortions(d.recipeId, d.sourceUrl, d.portions)
+                        d.sourceUrl?.let(onOpenPreview) ?: d.recipeId?.let(onOpenRecipe)
+                    },
+                    onFinish = { passed -> vm.finishReview(passed) },
+                )
+                Screen.RECAP -> RecapScreen(
+                    dishes = dishes, targets = remember(planned, dishes) { vm.targets() }, state = state, ready = ready,
+                    servings = draftServings, childFactor = vm.childFactor(),
+                    articles = preview?.items ?: insights.articles, shared = overlap.shared.size,
+                    onBack = vm::goHome,
+                    onAdjust = { chatOpen = true },
+                    onShowSharing = { vm.sharingResult.value = null; sharingOpen = true },
+                    onPortions = vm::changePortions,
+                    onAnother = vm::anotherRecipe,
+                    onInvent = { inventFor = it },
+                    onOpen = onOpenPreview, onOpenRecipe = onOpenRecipe,
+                    onRemove = vm::removeDish,
+                    onChoose = vm::setPickerCourse,
+                    onFillSlot = vm::fillSlot,
+                    onFillAll = vm::fillMissing,
+                    onAddMore = vm::openPicker,
+                    onRestart = vm::restart,
+                    onValidate = { askNotifications(); vm.validate() },
+                )
+                Screen.PREPARATION -> (state.validation ?: lastValidation)?.let { v ->
+                    PreparationScreen(v, dishes, modelLoading = state.model == ModelStatus.Loading, onBackground = { prepHidden = true; vm.goHome() })
                 }
+                Screen.WEEK -> WeekScreen(
+                    week = week, images = recipeImages, servings = bookServings, childFactor = vm.childFactor(),
+                    stepsProgress = stepsProgress, pendingSteps = pendingSteps,
+                    chefInstalled = state.model != ModelStatus.Absent,
+                    onGenerate = vm::generateMissingSteps, onStopGenerating = vm::stopGeneratingSteps,
+                    onBack = vm::goHome,
+                    onToggle = vm::toggleCooked, onOpenRecipe = onOpenRecipe,
+                    onOpenShopping = onOpenShopping, onNewMenu = vm::newMenu, onClear = vm::clearWeek,
+                )
             }
         }
     }
@@ -274,7 +261,17 @@ fun MenuScreen(onOpenSettings: () -> Unit, onOpenRecipe: (Long) -> Unit, onOpenS
         )
     }
 
-    if (chatOpen) {
+    if (sharingOpen && onTop) {
+        SharingSheet(
+            dishes = dishes, report = overlap, insights = insights, preview = preview,
+            busy = state.busy || sharingBusy, canUndo = state.canUndo, result = sharingResult,
+            canImprove = overlap.isolated.size > 1,
+            onImprove = vm::improveSharing, onUndo = { vm.undo(); vm.sharingResult.value = "Dernier changement annulé." },
+            onDismiss = { sharingOpen = false },
+        )
+    }
+
+    if (chatOpen && onTop) {
         ChatSheet(
             chat = state.chat, busy = state.busy, ready = ready, modelLoading = state.model == ModelStatus.Loading,
             onSend = vm::send, onStop = vm::stop, onImprove = vm::improveSharing,
@@ -283,10 +280,14 @@ fun MenuScreen(onOpenSettings: () -> Unit, onOpenRecipe: (Long) -> Unit, onOpenS
         )
     }
 
-    state.picker?.let { recipes ->
+    state.picker?.takeIf { onTop }?.let { recipes ->
         AddDishSheet(
-            recipes = recipes, busy = state.pickerBusy, course = state.pickerCourse, onCourse = vm::setPickerCourse,
-            onSearch = vm::searchPicker, onPick = { vm.addCandidate(it) }, onOpen = onOpenPreview, onDismiss = vm::closePicker,
+            recipes = recipes, busy = state.pickerBusy, course = state.pickerCourse, canInvent = ready,
+            query = pickerQuery, onQuery = { pickerQuery = it },
+            onCourse = vm::setPickerCourse,
+            onSearch = vm::searchPicker, onPick = { vm.addCandidate(it) }, onOpen = onOpenPreview,
+            onInvent = { idea -> vm.closePicker(); vm.invent(null, idea) },
+            onDismiss = vm::closePicker,
         )
     }
 }
@@ -310,612 +311,441 @@ private fun rememberNotificationPermission(): () -> Unit {
     }
 }
 
-// ---------- Étape 1 : envies de la semaine ----------
+// ---------- Éléments communs du tunnel ----------
 
-/** Choix unique parmi quelques options, en pastilles. */
+/** En-tête du tunnel : fermer / retour, barre d'étapes (1 à 3) et compteur. */
 @Composable
-private fun <T> ChoiceRow(options: List<T>, selected: T, label: (T) -> String, enabled: Boolean, onSelect: (T) -> Unit) {
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        options.forEach { o ->
-            FilterChip(selected = o == selected, onClick = { onSelect(o) }, enabled = enabled, label = { Text(label(o)) })
+internal fun TunnelHeader(current: Int, onClose: () -> Unit, back: Boolean = false, onDark: Boolean = false, trailing: @Composable () -> Unit = {}) {
+    val ink = if (onDark) Cuisine.Coffee else MaterialTheme.colorScheme.onSurface
+    Row(
+        Modifier.fillMaxWidth().statusBarsPadding().padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Surface(onClick = onClose, shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerLowest, modifier = Modifier.size(44.dp)) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    if (back) Icons.AutoMirrored.Filled.ArrowBack else Icons.Filled.Close,
+                    contentDescription = if (back) "Retour" else "Fermer",
+                    tint = ink,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+        }
+        Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            repeat(3) { i ->
+                Box(
+                    Modifier.weight(1f).height(4.dp).clip(RoundedCornerShape(2.dp))
+                        .background(if (i < current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
+                )
+            }
+        }
+        Text("$current/3", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        trailing()
+    }
+}
+
+/** Grand bouton d'action du tunnel : pilule tomate avec une pastille flèche. */
+@Composable
+internal fun PrimaryCta(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        shape = RoundedCornerShape(30.dp),
+        color = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest,
+        modifier = modifier.fillMaxWidth().height(60.dp),
+    ) {
+        Row(Modifier.padding(start = 24.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text,
+                style = MaterialTheme.typography.titleMedium,
+                color = if (enabled) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Box(Modifier.size(44.dp).clip(CircleShape).background(Cuisine.Saffron), contentAlignment = Alignment.Center) {
+                Icon(Icons.AutoMirrored.Filled.ArrowForward, null, tint = Cuisine.Coffee)
+            }
         }
     }
 }
 
+/** Compteur rond « − valeur + ». */
 @Composable
-private fun SettingsStep(vm: MenuViewModel, state: MenuUiState, onOpenSettings: () -> Unit) {
-    val enabled = !state.busy
-    val welcomeCollapsed by vm.welcomeCollapsed.collectAsStateWithLifecycle()
-    LazyColumn(
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-        modifier = Modifier.fillMaxSize().imePadding(),
+internal fun RoundStepper(value: Int, onChange: (Int) -> Unit, label: String, min: Int = 0, max: Int = 21, enabled: Boolean = true, big: Boolean = true) {
+    val size = if (big) 40.dp else 32.dp
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Surface(
+            onClick = { onChange(value - 1) }, enabled = enabled && value > min, shape = CircleShape,
+            color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.size(size),
+        ) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Filled.Remove, "$label : moins", Modifier.size(18.dp)) } }
+        Text(
+            "$value",
+            style = if (big) MaterialTheme.typography.titleLarge else MaterialTheme.typography.titleSmall,
+            modifier = Modifier.widthIn(min = 28.dp),
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        )
+        Surface(
+            onClick = { onChange(value + 1) }, enabled = enabled && value < max, shape = CircleShape,
+            color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.size(size),
+        ) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Filled.Add, "$label : plus", Modifier.size(18.dp)) } }
+    }
+}
+
+/** Choix unique en segments (temps en cuisine, classiques / découvertes). */
+@Composable
+internal fun <T> Segmented(options: List<T>, selected: T, label: (T) -> String, enabled: Boolean, onSelect: (T) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow).padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        item { ModelStatusCard(state.model, welcomeCollapsed, vm::setWelcomeCollapsed, onOpenSettings) { vm.loadModel() } }
-        item {
-            Column {
-                Text("Qu'est-ce qu'on mange cette semaine ?", style = MaterialTheme.typography.headlineSmall)
-                Text(
-                    "Dis-moi tes envies : je cherche de vraies recettes de saison sur les sites de cuisine et je compose un menu qui limite les courses.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        item {
-            SectionCard {
-                SectionHeader("Pour qui ?", emoji = "🍽")
-                PillStepper("🥗", "Entrées", state.starters, vm::setStarters, enabled = enabled, min = 0, max = 21)
-                PillStepper("🍽", "Plats", state.meals, vm::setMeals, enabled = enabled, min = 1, max = 21)
-                PillStepper("🍰", "Desserts", state.desserts, vm::setDesserts, enabled = enabled, min = 0, max = 21)
-                PillStepper("🧑", "Adultes par repas", state.adults, vm::setAdults, enabled = enabled, max = 20)
-                PillStepper("🧒", "Enfants par repas", state.children, vm::setChildren, enabled = enabled, max = 20)
-            }
-        }
-        item {
-            SectionCard {
-                SectionHeader("Temps en cuisine", emoji = "⏱")
-                ChoiceRow(CookingTime.entries, state.time, { it.label }, enabled, vm::setTime)
-                Text(
-                    "Par repas, préparation et cuisson comprises : ${state.time.detail}.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        item {
-            val free = state.meals - state.vegetarian - state.fish - state.meat
-            SectionCard {
-                SectionHeader("Composition de la semaine", emoji = "🥗")
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    MiniStepper("🥦 Végé", state.vegetarian, { vm.setQuota(DishKind.VEGE, it) }, enabled, "Repas végétariens")
-                    MiniStepper("🐟 Poisson", state.fish, { vm.setQuota(DishKind.POISSON, it) }, enabled, "Repas de poisson")
-                    MiniStepper("🍗 Viande", state.meat, { vm.setQuota(DishKind.VIANDE, it) }, enabled, "Repas de viande")
+        options.forEach { o ->
+            val on = o == selected
+            Surface(
+                onClick = { onSelect(o) }, enabled = enabled,
+                shape = RoundedCornerShape(10.dp),
+                color = if (on) MaterialTheme.colorScheme.surfaceContainerLowest else Color.Transparent,
+                modifier = Modifier.weight(1f).height(40.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        label(o),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = if (on) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
                 }
-                Text(
-                    when {
-                        free == state.meals -> "Rien d'imposé : je varie pour toi."
-                        free > 0 -> "$free repas libre${if (free > 1) "s" else ""}."
-                        else -> "Tous les repas sont répartis."
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
         }
-        item {
-            SectionCard {
-                SectionHeader("À écouler", emoji = "🧊")
-                Text(
-                    "Ce qui attend dans le frigo : je cherche des recettes qui l'utilisent.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                if (state.useUp.isNotEmpty()) {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        state.useUp.forEach { item ->
-                            InputChip(
-                                selected = false,
-                                onClick = { vm.removeUseUp(item) },
-                                enabled = enabled,
-                                label = { Text(item) },
-                                trailingIcon = { Icon(Icons.Filled.Close, "Retirer $item", Modifier.size(16.dp)) },
+    }
+}
+
+/** Pastille sélectionnable (envies, filtres). */
+@Composable
+internal fun Pill(text: String, selected: Boolean, onClick: () -> Unit, enabled: Boolean = true) {
+    Surface(
+        onClick = onClick, enabled = enabled,
+        shape = RoundedCornerShape(50),
+        color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerLowest,
+        modifier = if (selected) Modifier else Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(50)),
+    ) {
+        Text(
+            text,
+            style = MaterialTheme.typography.labelLarge,
+            color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+        )
+    }
+}
+
+/** Carte blanche arrondie du tunnel. */
+@Composable
+internal fun TunnelCard(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    Surface(shape = RoundedCornerShape(22.dp), color = MaterialTheme.colorScheme.surfaceContainerLowest, modifier = modifier.fillMaxWidth()) {
+        content()
+    }
+}
+
+// ---------- Accueil de l'onglet Envie ----------
+
+@Composable
+private fun HomeScreen(
+    week: List<PlannedMeal>,
+    draft: List<MenuDish>,
+    onOpenSettings: () -> Unit,
+    onOpenWeek: () -> Unit,
+    onContinueDraft: () -> Unit,
+    onCompleteDraft: () -> Unit,
+    onClearDraft: () -> Unit,
+    onNewMenu: () -> Unit,
+) {
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).statusBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 4.dp)) {
+            Text(
+                "On prévoit quoi ?",
+                style = MaterialTheme.typography.headlineLarge.copy(fontSize = 32.sp, letterSpacing = (-0.5).sp),
+                modifier = Modifier.weight(1f).padding(start = 4.dp),
+            )
+            Surface(onClick = onOpenSettings, shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerLowest, modifier = Modifier.size(48.dp)) {
+                Box(contentAlignment = Alignment.Center) { Icon(Icons.Filled.Settings, "Paramètres", Modifier.size(22.dp)) }
+            }
+        }
+
+        // Menu de la semaine : seulement s'il existe.
+        if (week.isNotEmpty()) {
+            val cooked = week.count { it.cooked }
+            Surface(onClick = onOpenWeek, shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLowest) {
+                Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(Cuisine.BasilLight), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Filled.Check, null, tint = Cuisine.Coffee)
+                    }
+                    Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                        Text("Menu de la semaine", style = MaterialTheme.typography.titleSmall)
+                        Text("Validé · $cooked / ${week.size} plats cuisinés", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Icon(Icons.Filled.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+
+        // Menu commencé (plats envoyés depuis Recettes, ou proposition non validée) : seulement s'il existe.
+        if (draft.isNotEmpty()) {
+            Surface(shape = RoundedCornerShape(26.dp), color = MaterialTheme.colorScheme.surfaceContainerLowest, shadowElevation = 2.dp) {
+                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "Menu commencé",
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                            color = Cuisine.Coffee,
+                            modifier = Modifier.clip(RoundedCornerShape(50)).background(Cuisine.SaffronLight).padding(horizontal = 12.dp, vertical = 5.dp),
+                        )
+                        Spacer(Modifier.weight(1f))
+                        TextButton(onClick = onClearDraft) { Text("Vider") }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(width = 104.dp, height = 52.dp)) {
+                            draft.take(3).forEachIndexed { i, d ->
+                                DishArt(
+                                    d.title, d.mainIngredients, imageUrl = d.imageUrl, emojiSize = 20,
+                                    modifier = Modifier.offset(x = (i * 26).dp).size(52.dp).clip(RoundedCornerShape(14.dp))
+                                        .border(3.dp, MaterialTheme.colorScheme.surfaceContainerLowest, RoundedCornerShape(14.dp)),
+                                )
+                            }
+                        }
+                        Column(Modifier.weight(1f).padding(start = 8.dp)) {
+                            Text("${draft.size} recette${if (draft.size > 1) "s" else ""} déjà choisie${if (draft.size > 1) "s" else ""}", style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                draft.take(3).joinToString(", ") { it.title } + if (draft.size > 3) "…" else "",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2, overflow = TextOverflow.Ellipsis,
                             )
                         }
                     }
-                }
-                var input by remember { mutableStateOf("") }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(
-                        value = input,
-                        onValueChange = { input = it },
-                        placeholder = { Text("ex. un demi chou, crème fraîche") },
-                        singleLine = true,
-                        enabled = enabled,
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.weight(1f),
-                    )
-                    TextButton(onClick = { vm.addUseUp(input); input = "" }, enabled = enabled && input.isNotBlank()) { Text("Ajouter") }
-                }
-            }
-        }
-        item {
-            SectionCard {
-                SectionHeader("Nouveautés", emoji = "✨")
-                ChoiceRow(Novelty.entries, state.novelty, { it.label }, enabled, vm::setNovelty)
-                Text(
-                    when (state.novelty) {
-                        Novelty.CLASSIQUES -> "Surtout tes favoris et tes plats déjà cuisinés, avec quelques découvertes."
-                        Novelty.EQUILIBRE -> "Des découvertes des sites, et un ou deux plats de ton livre."
-                        Novelty.DECOUVERTES -> "Uniquement de nouvelles recettes des sites."
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        item {
-            SectionCard {
-                SectionHeader("Une envie particulière ?", emoji = "💬")
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    QUICK_WISHES.forEach { w ->
-                        FilterChip(
-                            selected = state.wishes.split(',').any { it.trim().equals(w, true) },
-                            onClick = { vm.toggleWish(w) },
-                            enabled = enabled,
-                            label = { Text(w) },
-                        )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Surface(onClick = onContinueDraft, shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f).height(48.dp)) {
+                            Box(contentAlignment = Alignment.Center) { Text("Continuer ce menu", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onPrimary) }
+                        }
+                        Surface(onClick = onCompleteDraft, shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.height(48.dp)) {
+                            Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Filled.AutoAwesome, null, Modifier.size(18.dp))
+                                Spacer(Modifier.size(6.dp))
+                                Text("Compléter", style = MaterialTheme.typography.labelLarge)
+                            }
+                        }
                     }
                 }
-                OutlinedTextField(
-                    value = state.wishes,
-                    onValueChange = vm::setWishes,
-                    placeholder = { Text("ex. « une raclette samedi », séparées par des virgules") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    enabled = enabled,
-                    maxLines = 3,
-                )
             }
         }
-        item {
-            InfoBanner(
-                "🍂",
-                "De saison : " + (vm.season.vegetables.take(8) + vm.season.fruits.take(4)).joinToString(", ") + "…",
-            )
+
+        Row(Modifier.fillMaxWidth().height(220.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Surface(onClick = onNewMenu, shape = RoundedCornerShape(26.dp), color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f).fillMaxSize()) {
+                Box {
+                    Box(Modifier.align(Alignment.TopEnd).offset(x = 36.dp, y = (-36).dp).size(130.dp).clip(CircleShape).background(Color(0xFFE2603F)))
+                    Box(Modifier.align(Alignment.TopEnd).offset(x = (-22).dp, y = 62.dp).size(44.dp).clip(CircleShape).background(Cuisine.Saffron))
+                    Column(Modifier.fillMaxSize().padding(18.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                        Text("LA SEMAINE", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold, letterSpacing = 1.sp), color = Color.White)
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Prévoir un menu", style = MaterialTheme.typography.headlineSmall, color = Color.White)
+                            Text("Le chef propose, tu choisis.", style = MaterialTheme.typography.bodySmall, color = Color.White)
+                        }
+                    }
+                }
+            }
+            // Tunnel apéro / soirée : pas encore défini, la tuile n'a pas d'action.
+            Surface(shape = RoundedCornerShape(26.dp), color = Cuisine.Saffron, modifier = Modifier.weight(1f).fillMaxSize()) {
+                Box {
+                    Row(Modifier.align(Alignment.TopEnd).padding(top = 18.dp, end = 16.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Box(Modifier.size(22.dp).clip(CircleShape).background(Color.White))
+                        Box(Modifier.size(22.dp).clip(CircleShape).background(Cuisine.Basil))
+                    }
+                    Column(Modifier.fillMaxSize().padding(18.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                        Text("UN MOMENT", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold, letterSpacing = 1.sp), color = Cuisine.Coffee)
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Apéro ou soirée", style = MaterialTheme.typography.headlineSmall, color = Cuisine.Coffee)
+                            Text("Bientôt", style = MaterialTheme.typography.bodySmall, color = Cuisine.Coffee)
+                        }
+                    }
+                }
+            }
         }
     }
 }
 
+// ---------- Étape 1 : paramètres ----------
+
 @Composable
-private fun ModelStatusCard(
-    model: ModelStatus,
-    collapsed: Boolean,
-    onCollapse: (Boolean) -> Unit,
-    onOpenSettings: () -> Unit,
-    onRetry: () -> Unit,
-) {
-    when (model) {
-        is ModelStatus.Ready -> Row(verticalAlignment = Alignment.CenterVertically) {
-            StatChip("🤖 ${model.modelName} · ${model.backend}")
+private fun ParamsScreen(vm: MenuViewModel, state: MenuUiState, onClose: () -> Unit, onLaunch: () -> Unit) {
+    val enabled = !state.busy
+    var more by rememberSaveable { mutableStateOf(false) }
+    val total = state.starters + state.meals + state.desserts
+    Column(Modifier.fillMaxSize()) {
+        TunnelHeader(current = 1, onClose = onClose)
+        Column(
+            Modifier.weight(1f).verticalScroll(rememberScrollState()).imePadding().padding(horizontal = 16.dp, vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("Ta semaine", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(start = 4.dp))
+
+            TunnelCard {
+                Column(Modifier.padding(start = 18.dp, end = 8.dp, top = 4.dp, bottom = 4.dp)) {
+                    listOf(
+                        Triple("Adultes", state.adults, vm::setAdults),
+                        Triple("Enfants", state.children, vm::setChildren),
+                    ).forEach { (label, value, set) ->
+                        Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(label, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                            RoundStepper(value, set, label, min = if (label == "Adultes") 1 else 0, max = 20, enabled = enabled)
+                        }
+                    }
+                }
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(
+                    Triple("Entrées", state.starters, vm::setStarters) to 0,
+                    Triple("Plats", state.meals, vm::setMeals) to 1,
+                    Triple("Desserts", state.desserts, vm::setDesserts) to 0,
+                ).forEach { (t, min) ->
+                    val (label, value, set) = t
+                    TunnelCard(Modifier.weight(1f)) {
+                        Column(Modifier.padding(vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("$value", style = MaterialTheme.typography.displaySmall)
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Surface(onClick = { set(value - 1) }, enabled = enabled && value > min, shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.size(36.dp)) {
+                                    Box(contentAlignment = Alignment.Center) { Icon(Icons.Filled.Remove, "$label : moins", Modifier.size(18.dp)) }
+                                }
+                                Surface(onClick = { set(value + 1) }, enabled = enabled && value < 21, shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.size(36.dp)) {
+                                    Box(contentAlignment = Alignment.Center) { Icon(Icons.Filled.Add, "$label : plus", Modifier.size(18.dp)) }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            TunnelCard {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Temps en cuisine · ${state.time.detail}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Segmented(CookingTime.entries, state.time, { it.label }, enabled, vm::setTime)
+                    Text("Recettes", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
+                    Segmented(Novelty.entries, state.novelty, { if (it == Novelty.CLASSIQUES) "Classiques" else it.label }, enabled, vm::setNovelty)
+                    Text("Envies", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        QUICK_WISHES.forEach { w ->
+                            Pill(w, state.wishes.split(',').any { it.trim().equals(w, true) }, { vm.toggleWish(w) }, enabled)
+                        }
+                    }
+                }
+            }
+
+            TunnelCard {
+                Column {
+                    Row(
+                        Modifier.fillMaxWidth().clickable { more = !more }.padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Affiner", style = MaterialTheme.typography.titleSmall)
+                            Text("Végé / viande / poisson, à écouler, une envie précise", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Icon(if (more) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, if (more) "Replier" else "Déplier")
+                    }
+                    if (more) Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf(
+                                Triple("Végé", state.vegetarian, DishKind.VEGE),
+                                Triple("Viande", state.meat, DishKind.VIANDE),
+                                Triple("Poisson", state.fish, DishKind.POISSON),
+                            ).forEach { (label, value, kind) ->
+                                Column(
+                                    Modifier.weight(1f).clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow).padding(vertical = 8.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                ) {
+                                    Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    RoundStepper(value, { vm.setQuota(kind, it) }, "Repas $label", enabled = enabled, big = false)
+                                }
+                            }
+                        }
+                        val free = state.meals - state.vegetarian - state.fish - state.meat
+                        Text(
+                            when {
+                                free == state.meals -> "Rien d'imposé : je varie pour toi."
+                                free > 0 -> "$free repas libre${if (free > 1) "s" else ""}."
+                                else -> "Tous les repas sont répartis."
+                            },
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text("À écouler", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (state.useUp.isNotEmpty()) {
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                state.useUp.forEach { item ->
+                                    InputChip(
+                                        selected = false, onClick = { vm.removeUseUp(item) }, enabled = enabled,
+                                        label = { Text(item) },
+                                        trailingIcon = { Icon(Icons.Filled.Close, "Retirer $item", Modifier.size(16.dp)) },
+                                    )
+                                }
+                            }
+                        }
+                        var input by remember { mutableStateOf("") }
+                        OutlinedTextField(
+                            value = input, onValueChange = { input = it },
+                            placeholder = { Text("ex. un demi chou, crème fraîche") },
+                            singleLine = true, enabled = enabled, shape = RoundedCornerShape(14.dp),
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                            keyboardActions = KeyboardActions(onDone = { vm.addUseUp(input); input = "" }),
+                            trailingIcon = {
+                                IconButton(onClick = { vm.addUseUp(input); input = "" }, enabled = enabled && input.isNotBlank()) { Icon(Icons.Filled.Add, "Ajouter") }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Text("Une envie précise", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        OutlinedTextField(
+                            value = state.wishes, onValueChange = vm::setWishes,
+                            placeholder = { Text("ex. « une raclette samedi »") },
+                            enabled = enabled, maxLines = 3, shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Text(
+                            "De saison : " + (vm.season.vegetables.take(8) + vm.season.fruits.take(4)).joinToString(", ") + "…",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+
+            ChefLine(state.model, onRetry = vm::loadModel)
         }
-        is ModelStatus.Sleeping -> SectionCard {
-            Text("🤖 Assistant installé", style = MaterialTheme.typography.titleMedium)
-            Text("${model.modelName} est prêt à être activé sur ton téléphone (quelques secondes).", style = MaterialTheme.typography.bodySmall)
-            Button(onClick = onRetry) { Text("Activer le chef") }
+        Box(Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 16.dp)) {
+            PrimaryCta("Lancer le chef · $total plat${if (total > 1) "s" else ""}", onLaunch, enabled = enabled)
+        }
+    }
+}
+
+/** État de l'assistant, en une ligne discrète (il n'est pas nécessaire pour composer un menu). */
+@Composable
+private fun ChefLine(model: ModelStatus, onRetry: () -> Unit) {
+    when (model) {
+        is ModelStatus.Sleeping -> Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 4.dp)) {
+            Text("Le chef (${model.modelName}) est en veille.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+            TextButton(onClick = onRetry) { Text("Activer") }
         }
         ModelStatus.Loading -> ModelLoadingCard()
-        ModelStatus.Absent -> SectionCard {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("👋 Bienvenue !", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-                TextButton(onClick = { onCollapse(!collapsed) }) { Text(if (collapsed) "Déplier" else "Replier") }
-            }
-            if (!collapsed) {
-                Text("Le menu se compose déjà à partir des sites de recettes. Pour l'ajuster en discutant et faire créer des recettes, installe l'assistant qui tourne sur ton téléphone (2 à 4 Go, en Wi-Fi).")
-                Button(onClick = onOpenSettings) { Text("Installer l'assistant") }
-            }
+        is ModelStatus.Failed -> Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 4.dp)) {
+            Text("Le chef n'a pas pu démarrer : ${model.message}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, modifier = Modifier.weight(1f))
+            TextButton(onClick = onRetry) { Text("Réessayer") }
         }
-        is ModelStatus.Failed -> SectionCard {
-            Text("L'assistant n'a pas pu démarrer", style = MaterialTheme.typography.titleMedium)
-            Text(model.message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-            Button(onClick = onRetry) { Text("Réessayer") }
-        }
+        else -> Unit
     }
 }
 
-// ---------- Étape 2 : proposition ----------
-
-@Composable
-private fun ProposalStep(
-    dishes: List<MenuDish>,
-    favorites: Set<Long>,
-    overlap: IngredientOverlap.Report,
-    insights: MenuInsights,
-    preview: ShoppingPreview?,
-    state: MenuUiState,
-    ready: Boolean,
-    onPortions: (Int, Int, Int) -> Unit,
-    onAnother: (Int) -> Unit,
-    /** Recette inventée par le chef : à la place du plat donné, ou en plus (null). */
-    onInvent: (Int?) -> Unit,
-    onOpen: (String) -> Unit,
-    onOpenRecipe: (Long) -> Unit,
-    onRemove: (Int) -> Unit,
-    onAdd: () -> Unit,
-    onImprove: () -> Unit,
-    onClear: () -> Unit,
-) {
-    val sharedNames = remember(overlap) { overlap.shared.map { ShoppingListMerger.key(it.name) }.toSet() }
-    val listState = rememberLazyListState()
-    val expanded = rememberGroupStates("menu")
-    val emptyLoading = dishes.isEmpty() && (state.busy || state.model == ModelStatus.Loading)
-    AnimatedContent(
-        targetState = emptyLoading,
-        transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(140)) },
-        label = "proposalContent",
-        modifier = Modifier.fillMaxSize(),
-    ) { isInitialLoading ->
-        if (isInitialLoading) {
-            Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-                ChefStatus(
-                    modelLoading = state.model == ModelStatus.Loading,
-                    busy = state.busy,
-                    lastText = null,
-                    progress = state.progress,
-                )
-            }
-        } else {
-            Column(Modifier.fillMaxSize()) {
-                // Toujours visible en haut, même quand on fait défiler les plats.
-                ChefStatus(
-                    modelLoading = state.model == ModelStatus.Loading,
-                    busy = state.busy,
-                    lastText = null,
-                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
-                    progress = state.progress,
-                )
-                LazyColumn(
-                    state = listState,
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                    modifier = Modifier.weight(1f),
-                ) {
-        item {
-            val mains = dishes.filter { it.isMain }
-            val balanced = mains.count { PlateBalance.missing(dishBalanceTexts(it)).isEmpty() }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
-                StatChip("🍽 ${mains.size} plats", emphasized = true)
-                if (dishes.size > mains.size) StatChip("🥗 ${dishes.count { it.course == fr.mescourses.core.catalog.Course.ENTREE }} entrées · 🍰 ${dishes.count { it.course == fr.mescourses.core.catalog.Course.DESSERT }} desserts")
-                StatChip("🛒 ${preview?.items ?: insights.articles} articles")
-                StatChip("🍂 ${insights.seasonal.size} de saison")
-                StatChip("♻ ${overlap.shared.size} partagés")
-                StatChip("⚖ $balanced/${mains.size} équilibrés")
-            }
-        }
-        // Entrées, plats et desserts dans trois cartouches pliables ; les numéros restent ceux du menu.
-        val groups = dishes.withIndex().groupBy { groupOf(it.value.course) }
-        MealGroup.entries.forEach { group ->
-            val entries = groups[group].orEmpty()
-            if (entries.isEmpty()) return@forEach
-            courseSection(
-                group = group, count = entries.size, expanded = expanded[group],
-                onToggle = { expanded.toggle(group) },
-                list = entries, key = { (i, d) -> "$i-${d.title}" },
-            ) { (i, dish) ->
-                DishCard(
-                    number = i + 1,
-                    dish = dish,
-                    favorite = dish.recipeId != null && dish.recipeId in favorites,
-                    sharedNames = sharedNames,
-                    enabled = !state.busy,
-                    canAskLlm = ready,
-                    onPortions = { a, c -> onPortions(i, a, c) },
-                    onAnother = { onAnother(i) },
-                    onInvent = { onInvent(i) },
-                    onOpen = onOpen,
-                    onOpenRecipe = onOpenRecipe,
-                    onRemove = { onRemove(i) },
-                    modifier = Modifier.animateItem(),
-                )
-            }
-        }
-        item {
-            Button(onClick = onAdd, enabled = !state.busy, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Filled.Add, null, Modifier.size(18.dp))
-                Spacer(Modifier.size(6.dp))
-                Text("Ajouter un plat")
-            }
-        }
-        item {
-            OutlinedButton(onClick = { onInvent(null) }, enabled = ready && !state.busy, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Filled.AutoAwesome, null, Modifier.size(18.dp))
-                Spacer(Modifier.size(6.dp))
-                Text("Créer une recette avec le chef")
-            }
-        }
-        if (overlap.hasData) item { SharingCard(overlap, insights, preview, enabled = ready && !state.busy, onImprove = onImprove) }
-        item {
-            TextButton(onClick = onClear, enabled = !state.busy, modifier = Modifier.fillMaxWidth()) { Text("Tout effacer et recommencer") }
-        }
-                }
-            }
-        }
-    }
-}
-
-private fun dishBalanceTexts(d: MenuDish) = listOf(d.title, d.description) + d.mainIngredients
-
-/** Les trois parties d'un menu, dans l'ordre du repas. */
-private enum class MealGroup(val label: String, val emoji: String) {
-    ENTREES("Entrées", "🥗"), PLATS("Plats", "🍽"), DESSERTS("Desserts", "🍰"),
-}
-
-private fun groupOf(course: Course?) = when (course) {
-    null -> MealGroup.PLATS
-    Course.DESSERT -> MealGroup.DESSERTS
-    else -> MealGroup.ENTREES
-}
-
-/** Parties dépliées (par défaut toutes), gardées à la rotation de l'écran. */
-private class GroupStates(private val open: Map<MealGroup, MutableState<Boolean>>) {
-    operator fun get(group: MealGroup) = open.getValue(group).value
-    fun toggle(group: MealGroup) { open.getValue(group).let { it.value = !it.value } }
-}
-
-@Composable
-private fun rememberGroupStates(scope: String) =
-    GroupStates(MealGroup.entries.associateWith { g -> rememberSaveable(key = "$scope-${g.name}") { mutableStateOf(true) } })
-
-/** Cartouche pliable : un en-tête (titre, nombre, flèche) puis, quand elle est dépliée, ses cartes. */
-private fun <T> LazyListScope.courseSection(
-    group: MealGroup,
-    count: Int,
-    expanded: Boolean,
-    onToggle: () -> Unit,
-    list: List<T>,
-    key: (T) -> Any,
-    content: @Composable LazyItemScope.(T) -> Unit,
-) {
-    item(key = "header-${group.name}") {
-        Card(
-            onClick = onToggle,
-            shape = MaterialTheme.shapes.large,
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-            modifier = Modifier.fillMaxWidth().animateItem(),
-        ) {
-            Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("${group.emoji} ${group.label}", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                Text("$count", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSecondaryContainer)
-                Icon(if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, if (expanded) "Replier" else "Déplier")
-            }
-        }
-    }
-    if (expanded) items(list, key = key) { content(it) }
-}
-
-/** Carte épinglée tant que le chef travaille : chargement du modèle, sinon réflexion/étape en cours. */
-@Composable
-private fun ChefStatus(modelLoading: Boolean, busy: Boolean, lastText: String?, modifier: Modifier = Modifier, progress: String? = null) {
-    AnimatedVisibility(
-        visible = modelLoading || busy,
-        enter = fadeIn(tween(180)) + expandVertically(tween(200)),
-        exit = fadeOut(tween(150)) + shrinkVertically(tween(180)),
-        label = "chefStatus",
-    ) {
-        val title = when {
-            modelLoading -> MODEL_LOADING_TITLE
-            else -> progress ?: "Le chef réfléchit…"
-        }
-        val subtitle = when {
-            modelLoading -> MODEL_LOADING_TEXT
-            else -> lastText?.takeLast(140)?.trim()?.ifBlank { null }
-                ?: "Saison, équilibre, ingrédients partagés : il compose ton menu."
-        }
-        ChefCard(title, subtitle, modifier)
-    }
-}
-
-@Composable
-private fun DishCard(
-    number: Int,
-    dish: MenuDish,
-    favorite: Boolean,
-    sharedNames: Set<String>,
-    enabled: Boolean,
-    canAskLlm: Boolean,
-    onPortions: (Int, Int) -> Unit,
-    onAnother: () -> Unit,
-    onInvent: () -> Unit,
-    onOpen: (String) -> Unit,
-    onOpenRecipe: (Long) -> Unit,
-    onRemove: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val openable = dish.sourceUrl != null || dish.recipeId != null
-    val container = appContainer()
-    // Les personnes de la carte suivent dans l'écran détail de la recette.
-    val open = {
-        container.hintPortions(dish.recipeId, dish.sourceUrl, dish.portions)
-        dish.sourceUrl?.let(onOpen) ?: dish.recipeId?.let(onOpenRecipe); Unit
-    }
-    val present = PlateBalance.components(dishBalanceTexts(dish))
-    val main = dish.isMain
-    val season = remember(dish) { Seasonality.report(listOf(dish.title) + dish.mainIngredients, java.time.LocalDate.now().month) }
-    // D'où vient le plat : un site (avec sa durée), le livre, ou le chef.
-    val origin = listOfNotNull(
-        dish.course?.let { if (it == fr.mescourses.core.catalog.Course.DESSERT) "🍰 Dessert" else "🥗 Entrée" },
-        dish.sourceUrl?.let { RecipeSites.forUrl(it)?.name ?: "Site de recettes" },
-        if (dish.sourceUrl == null && dish.recipeId != null) "Mon livre" else null,
-        if (dish.sourceUrl == null && dish.recipeId == null) "✨ Recette du chef" else null,
-        dish.totalMinutes?.let { "$it min" },
-    ).joinToString(" · ")
-    var menuOpen by remember { mutableStateOf(false) }
-    Card(
-        modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-    ) {
-        Box {
-            DishArt(
-                dish.title, dish.mainIngredients, imageUrl = dish.imageUrl,
-                modifier = Modifier.fillMaxWidth().height(if (dish.imageUrl != null) 132.dp else 96.dp)
-                    .clickable(enabled = openable) { open() },
-                emojiSize = 48,
-            )
-            Text(
-                "$number",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onPrimary,
-                modifier = Modifier.padding(12.dp).clip(RoundedCornerShape(50))
-                    .background(MaterialTheme.colorScheme.primary).padding(horizontal = 10.dp, vertical = 2.dp),
-            )
-            if (favorite) {
-                Icon(
-                    Icons.Filled.Star, "Favori", tint = MaterialTheme.colorScheme.tertiary,
-                    modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
-                )
-            }
-        }
-        Column(Modifier.padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.Top) {
-                Column(
-                    Modifier.weight(1f).clip(MaterialTheme.shapes.small)
-                        .clickable(enabled = openable) { open() },
-                ) {
-                    Text(dish.title, style = MaterialTheme.typography.titleMedium)
-                    if (origin.isNotEmpty()) {
-                        Text(origin, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                    }
-                    if (dish.description.isNotBlank()) {
-                        Text(
-                            dish.description, style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2,
-                        )
-                    }
-                }
-                Box {
-                    IconButton(onClick = { menuOpen = true }, enabled = enabled) { Icon(Icons.Filled.Autorenew, "Autre idée") }
-                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        DropdownMenuItem(text = { Text("🔎 Autre recette des sites") }, onClick = { menuOpen = false; onAnother() })
-                        DropdownMenuItem(
-                            text = { Text("✨ Le chef invente une recette") },
-                            enabled = canAskLlm,
-                            onClick = { menuOpen = false; onInvent() },
-                        )
-                    }
-                }
-                IconButton(onClick = onRemove, enabled = enabled) { Icon(Icons.Filled.DeleteOutline, "Retirer") }
-            }
-            if (dish.mainIngredients.isNotEmpty()) {
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    dish.mainIngredients.forEach { IngredientChip(it, shared = ShoppingListMerger.key(it).let { k -> sharedNames.any { s -> s == k || k.startsWith(s) } }) }
-                }
-            }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                MiniStepper("🧑", dish.portions.adults, { onPortions(it - dish.portions.adults, 0) }, enabled, "Adultes")
-                MiniStepper("🧒", dish.portions.children, { onPortions(0, it - dish.portions.children) }, enabled, "Enfants")
-                Spacer(Modifier.weight(1f))
-                if (main) BalanceDots(present)
-            }
-            if (season.seasonal.isNotEmpty()) {
-                Text("🍂 De saison : ${season.seasonal.joinToString(", ")}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-            }
-            if (season.outOfSeason.isNotEmpty()) {
-                Text("⚠ Hors saison : ${season.outOfSeason.joinToString(", ")}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
-            }
-            balanceHint(present)?.takeIf { main }?.let {
-                Text("⚠ $it", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
-            }
-        }
-    }
-}
-
-@Composable
-private fun SharingCard(report: IngredientOverlap.Report, insights: MenuInsights, preview: ShoppingPreview?, enabled: Boolean, onImprove: () -> Unit) {
-    SectionCard {
-        SectionHeader("Ta liste de courses", emoji = "🛒")
-        Text(
-            "${preview?.items ?: insights.articles} articles à acheter" +
-                if (insights.seasonal.isNotEmpty()) ", dont ${insights.seasonal.size} produits de saison (${insights.seasonal.joinToString(", ")})." else ".",
-            style = MaterialTheme.typography.bodyMedium,
-        )
-        if (insights.outOfSeason.isNotEmpty()) {
-            Text(
-                "Hors saison : " + insights.outOfSeason.joinToString(", ") { (n, name) -> "$name (plat $n)" },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
-            )
-        }
-        if (!preview?.leftovers.isNullOrEmpty()) {
-            Text(
-                "Il restera : " + preview?.leftovers.orEmpty().joinToString(", ") + ". Une « autre recette » peut les utiliser.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        SectionHeader("Ingrédients partagés", emoji = "♻")
-        if (report.shared.isEmpty()) {
-            Text("Aucun ingrédient ne sert à plusieurs plats pour l'instant.", style = MaterialTheme.typography.bodyMedium)
-        }
-        report.shared.take(8).forEach { u ->
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(u.name.replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                u.dishes.forEach { n ->
-                    Text(
-                        "$n",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.padding(start = 4.dp).clip(RoundedCornerShape(50))
-                            .background(MaterialTheme.colorScheme.primaryContainer).padding(horizontal = 8.dp, vertical = 2.dp),
-                    )
-                }
-            }
-        }
-        if (report.isolated.isNotEmpty()) {
-            Text(
-                "Pour un seul plat : " + report.isolated.take(10).joinToString(", ") { it.name },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        if (report.isolated.size > 1) {
-            OutlinedButton(onClick = onImprove, enabled = enabled) { Text("♻ Mieux mutualiser") }
-        }
-    }
-}
-
-@Composable
-private fun ValidationProgress(v: Validation, dishes: List<MenuDish>, modelLoading: Boolean) {
-    val progress by animateFloatAsState(
-        targetValue = v.done.toFloat() / v.total.coerceAtLeast(1),
-        animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
-        label = "progress",
-    )
-    val current = remember(dishes, v.current) { dishes.firstOrNull { it.title == v.current } }
-    Column(
-        Modifier.fillMaxSize().padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        AnimatedVisibility(
-            visible = modelLoading,
-            enter = fadeIn(tween(180)) + expandVertically(tween(200)),
-            exit = fadeOut(tween(150)) + shrinkVertically(tween(180)),
-            label = "validationModelLoading",
-        ) {
-            ModelLoadingCard(Modifier.padding(bottom = 24.dp))
-        }
-        DishArt(
-            v.current.ifBlank { "Menu" }, current?.mainIngredients.orEmpty(),
-            modifier = Modifier.size(160.dp).clip(RoundedCornerShape(40.dp)), emojiSize = 72,
-        )
-        Text(
-            if (v.current.isNotBlank()) "Le chef prépare les ingrédients de" else "Le chef prépare ta liste…",
-            style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.padding(top = 24.dp),
-        )
-        if (v.current.isNotBlank()) {
-            Text(v.current, style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
-        }
-        LinearProgressIndicator(
-            progress = { progress },
-            modifier = Modifier.fillMaxWidth().padding(top = 24.dp).height(8.dp).clip(RoundedCornerShape(50)),
-        )
-        Text(
-            "Plat ${(v.done + 1).coerceAtMost(v.total)} / ${v.total}",
-            style = MaterialTheme.typography.labelLarge,
-            modifier = Modifier.padding(top = 8.dp),
-        )
-        Text(
-            "Les recettes des sites arrivent complètes dans ton livre. Pour une recette créée par le chef, les étapes s'écrivent quand tu l'ouvres. Tu peux quitter l'app, le chef continue.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(top = 16.dp),
-        )
-    }
-}
+// ---------- Fenêtres ----------
 
 /** Demande d'une recette créée par le chef (LLM), avec une idée facultative. */
 @Composable
@@ -949,112 +779,6 @@ private fun InventDialog(replacing: String?, onDismiss: () -> Unit, onCreate: (S
     )
 }
 
-// ---------- Étape 3 : semaine ----------
-
-@Composable
-private fun WeekStep(
-    images: Map<Long, String>,
-    stepsProgress: Pair<Int, Int>?,
-    onStopGenerating: () -> Unit,
-    pendingSteps: Int,
-    chefInstalled: Boolean,
-    onGenerate: () -> Unit,
-    week: List<PlannedMeal>,
-    onToggle: (PlannedMeal) -> Unit,
-    onOpenRecipe: (Long) -> Unit,
-    onOpenShopping: () -> Unit,
-    onNewMenu: () -> Unit,
-    onClear: () -> Unit,
-) {
-    if (week.isEmpty()) {
-        EmptyState("🗓", "Pas encore de menu validé", "Prépare un menu pour le voir ici.", actionLabel = "Préparer un menu", onAction = onNewMenu)
-        return
-    }
-    val cooked = week.count { it.cooked }
-    val progress by animateFloatAsState(cooked.toFloat() / week.size, label = "week")
-    val expanded = rememberGroupStates("week")
-    LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxSize()) {
-        item {
-            SectionCard {
-                Text("$cooked / ${week.size} plats cuisinés", style = MaterialTheme.typography.titleMedium)
-                LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(50)))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = onOpenShopping) { Text("🛒 Liste de courses") }
-                    OutlinedButton(onClick = onNewMenu) { Text("Nouveau menu") }
-                }
-            }
-        }
-        if (stepsProgress != null) item {
-            // Une fois lancé, le bouton laisse place à la progression de l'écriture.
-            val (done, total) = stepsProgress
-            val frac by animateFloatAsState(if (total == 0) 0f else done.toFloat() / total, label = "steps")
-            SectionCard {
-                Text("✍️ Le chef écrit les recettes : $done / $total", style = MaterialTheme.typography.titleSmall)
-                LinearProgressIndicator(progress = { frac }, modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(50)))
-                TextButton(onClick = onStopGenerating) { Text("Arrêter") }
-            }
-        } else if (pendingSteps > 0) item {
-            SectionCard {
-                Text("✍️ $pendingSteps recette(s) sans étapes", style = MaterialTheme.typography.titleSmall)
-                Text(
-                    "Le chef les écrit à partir des ingrédients, une par une, uniquement quand tu le demandes.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Button(onClick = onGenerate, enabled = chefInstalled) { Text("Générer les données manquantes avec le chef") }
-                if (!chefInstalled) Text("Installe l'assistant dans les Réglages pour l'utiliser.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-            }
-        }
-        val groups = week.groupBy { groupOf(it.course) }
-        MealGroup.entries.forEach { group ->
-            val meals = groups[group].orEmpty()
-            if (meals.isEmpty()) return@forEach
-            courseSection(
-                group = group, count = meals.size, expanded = expanded[group],
-                onToggle = { expanded.toggle(group) },
-                list = meals, key = { it.id },
-            ) { meal -> WeekMealCard(meal, images[meal.recipeId], onToggle, onOpenRecipe) }
-        }
-        item { TextButton(onClick = onClear, modifier = Modifier.fillMaxWidth()) { Text("Effacer le menu de la semaine") } }
-    }
-}
-
-@Composable
-private fun LazyItemScope.WeekMealCard(meal: PlannedMeal, image: String?, onToggle: (PlannedMeal) -> Unit, onOpenRecipe: (Long) -> Unit) {
-    val container = appContainer()
-    Card(
-        onClick = { container.hintPortions(meal.recipeId, null, meal.portions); onOpenRecipe(meal.recipeId) },
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(
-            containerColor = if (meal.cooked) MaterialTheme.colorScheme.surfaceContainerHighest else MaterialTheme.colorScheme.surfaceContainerLowest,
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        // Plat déjà cuisiné : la carte est grisée.
-        modifier = Modifier.fillMaxWidth().animateItem().alpha(if (meal.cooked) 0.5f else 1f),
-    ) {
-        // Photo de la recette en grand (ou illustration quand le site n'en donne pas).
-        DishArt(
-            meal.recipeTitle, imageUrl = image,
-            modifier = Modifier.fillMaxWidth().height(if (image != null) 150.dp else 96.dp),
-            emojiSize = 48,
-        )
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp)) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    meal.recipeTitle,
-                    style = MaterialTheme.typography.titleSmall,
-                    textDecoration = if (meal.cooked) TextDecoration.LineThrough else null,
-                    color = if (meal.cooked) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
-                )
-                Text(meal.portions.label(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Checkbox(checked = meal.cooked, onCheckedChange = { onToggle(meal) })
-        }
-    }
-}
-
-// ---------- Feuille de discussion ----------
-
 @Composable
 private fun ChatSheet(
     chat: List<ChatLine>,
@@ -1078,32 +802,28 @@ private fun ChatSheet(
     // Le clavier est géré ici seulement (pas aussi par la feuille), et la liste rétrécit pour laisser voir le champ.
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, contentWindowInsets = { WindowInsets(0) }) {
         Column(Modifier.fillMaxWidth().imePadding().navigationBarsPadding().padding(horizontal = 16.dp)) {
-            Text("Ajuster le menu", style = MaterialTheme.typography.titleLarge)
+            Text("Ajuster avec le chef", style = MaterialTheme.typography.titleLarge)
             Text(
                 "Une demande à la fois : invités sur un plat, ajouter, retirer ou remplacer un plat…",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            ChefStatus(
-                modelLoading = modelLoading, busy = busy,
-                lastText = null, // la réponse s'écrit déjà dans les bulles
-                modifier = Modifier.padding(top = 8.dp),
-            )
+            if (modelLoading) ModelLoadingCard(Modifier.padding(top = 8.dp))
+            else if (busy) BusyBar(Modifier.fillMaxWidth().padding(top = 8.dp))
             LazyColumn(
                 state = listState,
-                // La liste rétrécit quand le clavier s'ouvre : le champ de saisie reste visible au-dessus de lui.
                 modifier = Modifier.fillMaxWidth().weight(1f, fill = false).heightIn(min = 72.dp, max = 320.dp).padding(vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 if (chat.isEmpty()) item {
-                    Text("💬 Pas encore de message.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp))
+                    Text("Pas encore de message.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp))
                 }
                 items(chat) { ChatBubble(it) }
             }
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (canUndo) SuggestionChip(onClick = onUndo, enabled = !busy, label = { Text("↩ Annuler la retouche") })
-                SuggestionChip(onClick = onAddDish, enabled = !busy, label = { Text("＋ Ajouter un plat") })
-                SuggestionChip(onClick = onImprove, enabled = ready && !busy, label = { Text("♻ Mieux mutualiser") })
+                if (canUndo) SuggestionChip(onClick = onUndo, enabled = !busy, label = { Text("Annuler la retouche") })
+                SuggestionChip(onClick = onAddDish, enabled = !busy, label = { Text("Ajouter un plat") })
+                SuggestionChip(onClick = onImprove, enabled = ready && !busy, label = { Text("Mieux mutualiser") })
                 CHAT_SUGGESTIONS.forEach { s ->
                     SuggestionChip(onClick = { input = s }, enabled = !busy, label = { Text(s) })
                 }
@@ -1131,50 +851,49 @@ private fun ChatSheet(
     }
 }
 
-/** « Ajouter un plat » : les recettes disponibles pour ce menu, et une recherche dans le catalogue ou sur les sites. */
+/**
+ * « Ajouter un plat » : recettes disponibles, recherche (catalogue ou sites) et, en bas, création par le chef
+ * à partir du texte tapé. Une seule fenêtre pour ajouter ou faire inventer un plat.
+ */
 @Composable
 private fun AddDishSheet(
     recipes: List<Candidate>,
     busy: Boolean,
     course: Course?,
+    canInvent: Boolean,
+    query: String,
+    onQuery: (String) -> Unit,
     onCourse: (Course?) -> Unit,
     onSearch: (String) -> Unit,
     onPick: (Candidate) -> Unit,
     onOpen: (String) -> Unit,
+    onInvent: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    var query by remember { mutableStateOf("") }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, contentWindowInsets = { WindowInsets(0) }) {
-        Column(Modifier.fillMaxWidth().imePadding().navigationBarsPadding().padding(horizontal = 16.dp)) {
-            Text("Ajouter au menu", style = MaterialTheme.typography.titleLarge)
-            Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf<Pair<Course?, String>>(null to "Plat", Course.ENTREE to "Entrée", Course.DESSERT to "Dessert").forEach { (c, label) ->
-                    FilterChip(selected = course == c, onClick = { onCourse(c) }, label = { Text(label) })
-                }
-            }
-            Text(
-                "Touche une recette pour l'ajouter, ou cherche autre chose.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Column(Modifier.fillMaxWidth().imePadding().navigationBarsPadding().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("Ajouter un plat", style = MaterialTheme.typography.titleLarge)
+            Segmented(
+                listOf<Course?>(Course.ENTREE, null, Course.DESSERT), course,
+                { when (it) { Course.ENTREE -> "Entrée"; Course.DESSERT -> "Dessert"; else -> "Plat" } },
+                enabled = true, onSelect = onCourse,
             )
-            Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    modifier = Modifier.weight(1f),
-                    placeholder = { Text("Un plat, un ingrédient…") },
-                    shape = RoundedCornerShape(28.dp),
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(onSearch = { onSearch(query) }),
-                )
-                Spacer(Modifier.size(8.dp))
-                FilledIconButton(onClick = { onSearch(query) }, enabled = !busy) { Icon(Icons.Filled.Search, "Chercher") }
-            }
-            if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+            OutlinedTextField(
+                value = query,
+                onValueChange = onQuery,
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("Une idée, un plat, un ingrédient…") },
+                shape = RoundedCornerShape(28.dp),
+                singleLine = true,
+                leadingIcon = { Icon(Icons.Filled.Search, null) },
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { onSearch(query) }),
+                trailingIcon = { TextButton(onClick = { onSearch(query) }, enabled = !busy) { Text("Chercher") } },
+            )
+            if (busy) BusyBar(Modifier.fillMaxWidth())
             LazyColumn(
-                modifier = Modifier.fillMaxWidth().weight(1f, fill = false).heightIn(min = 72.dp, max = 460.dp).padding(vertical = 8.dp),
+                modifier = Modifier.fillMaxWidth().weight(1f, fill = false).heightIn(min = 72.dp, max = 380.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 if (recipes.isEmpty() && !busy) item {
@@ -1188,18 +907,36 @@ private fun AddDishSheet(
                                 Text(
                                     listOfNotNull(
                                         c.kind.label, c.minutes?.let { "$it min" }, c.siteName ?: if (c.fromCookbook) "Mon livre" else null,
-                                        c.seasonal.takeIf { it.isNotEmpty() }?.let { "🍂 " + it.take(2).joinToString(", ") },
+                                        c.seasonal.takeIf { it.isNotEmpty() }?.let { "de saison : " + it.take(2).joinToString(", ") },
                                     ).joinToString(" · "),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
-                                Text(
-                                    c.mainIngredients.take(5).joinToString(", "),
-                                    style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                )
                             }
                             c.recipe.sourceUrl?.let { url -> TextButton(onClick = { onOpen(url) }) { Text("Voir") } }
                         }
+                    }
+                }
+            }
+            // Création par le chef, à partir de ce qui est tapé.
+            Surface(
+                onClick = { onInvent(query) }, enabled = canInvent,
+                shape = RoundedCornerShape(22.dp), color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(44.dp).clip(CircleShape).background(Cuisine.Saffron), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Filled.AutoAwesome, null, tint = Cuisine.Coffee)
+                    }
+                    Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                        Text(
+                            if (query.isBlank()) "Le chef invente un plat" else "Créer « ${query.trim()} » avec le chef",
+                            style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onPrimary,
+                        )
+                        Text(
+                            if (canInvent) "Recette inventée sur ton téléphone" else "Installe l'assistant dans les Réglages pour l'utiliser",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimary,
+                        )
                     }
                 }
             }
@@ -1240,3 +977,148 @@ private fun ChatBubble(line: ChatLine) {
     }
 }
 
+/**
+ * Liste de courses du menu en cours : ce que les plats partagent (et quels plats), ce qui ne sert qu'à un plat,
+ * ce qui restera. « Mieux mutualiser » remplace un plat par une recette qui réutilise davantage les mêmes ingrédients ;
+ * le résultat s'affiche ici, et le changement peut être annulé.
+ */
+@Composable
+private fun SharingSheet(
+    dishes: List<MenuDish>,
+    report: fr.mescourses.core.menu.IngredientOverlap.Report,
+    insights: fr.mescourses.core.menu.MenuInsights,
+    preview: fr.mescourses.core.menu.ShoppingPreview?,
+    busy: Boolean,
+    canUndo: Boolean,
+    result: String?,
+    canImprove: Boolean,
+    onImprove: () -> Unit,
+    onUndo: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var showIsolated by remember { mutableStateOf(false) }
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, contentWindowInsets = { WindowInsets(0) }) {
+        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Ta liste de courses", style = MaterialTheme.typography.titleLarge)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(
+                    "${preview?.items ?: insights.articles}" to "articles",
+                    "${report.shared.size}" to "partagés",
+                    "${insights.seasonal.size}" to "de saison",
+                ).forEachIndexed { i, (n, label) ->
+                    Column(
+                        Modifier.weight(1f).clip(RoundedCornerShape(16.dp))
+                            .background(if (i == 1) Cuisine.BasilLight else MaterialTheme.colorScheme.surfaceContainerLow)
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                    ) {
+                        Text(n, style = MaterialTheme.typography.titleLarge, color = if (i == 1) Cuisine.Coffee else MaterialTheme.colorScheme.onSurface)
+                        Text(label, style = MaterialTheme.typography.labelMedium, color = if (i == 1) Cuisine.Coffee else MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            LazyColumn(
+                Modifier.fillMaxWidth().weight(1f, fill = false).heightIn(max = 420.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                item {
+                    Text(
+                        "PARTAGÉS ENTRE PLUSIEURS PLATS",
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold, letterSpacing = 1.sp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (report.shared.isEmpty()) item {
+                    Text("Aucun ingrédient ne sert à plusieurs plats pour l'instant.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                items(report.shared, key = { it.name }) { u ->
+                    val used = u.dishes.mapNotNull { dishes.getOrNull(it - 1) }
+                    Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceContainerLowest) {
+                        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(u.name.replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.titleSmall)
+                                Text(
+                                    used.joinToString(" · ") { it.title },
+                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            Box(Modifier.size(width = (28 + 18 * (used.size.coerceAtMost(3) - 1)).dp, height = 28.dp)) {
+                                used.take(3).forEachIndexed { i, d ->
+                                    DishArt(
+                                        d.title, d.mainIngredients, imageUrl = d.imageUrl, emojiSize = 12,
+                                        modifier = Modifier.offset(x = (i * 18).dp).size(28.dp).clip(CircleShape)
+                                            .border(2.dp, MaterialTheme.colorScheme.surfaceContainerLowest, CircleShape),
+                                    )
+                                }
+                            }
+                            Text("×${u.dishes.size}", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(start = 8.dp))
+                        }
+                    }
+                }
+                if (report.isolated.isNotEmpty()) item {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { showIsolated = !showIsolated }.padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                "POUR UN SEUL PLAT · ${report.isolated.size}",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold, letterSpacing = 1.sp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f),
+                            )
+                            Icon(if (showIsolated) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, if (showIsolated) "Replier" else "Déplier")
+                        }
+                        if (showIsolated) FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            report.isolated.forEach { u ->
+                                Text(
+                                    u.name, style = MaterialTheme.typography.labelMedium,
+                                    modifier = Modifier.clip(RoundedCornerShape(50)).background(MaterialTheme.colorScheme.surfaceContainerLow).padding(horizontal = 10.dp, vertical = 5.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+                if (!preview?.leftovers.isNullOrEmpty()) item {
+                    Text("Il restera : " + preview?.leftovers.orEmpty().joinToString(", ") + ".", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (insights.outOfSeason.isNotEmpty()) item {
+                    Text(
+                        "Hors saison : " + insights.outOfSeason.joinToString(", ") { (n, name) -> "$name (${dishes.getOrNull(n - 1)?.title ?: "plat $n"})" },
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary,
+                    )
+                }
+            }
+            result?.let {
+                Text(
+                    it, style = MaterialTheme.typography.bodySmall, color = Cuisine.Coffee,
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Cuisine.SaffronLight).padding(12.dp),
+                )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (canUndo) TextButton(onClick = onUndo, enabled = !busy) { Text("Annuler") }
+                Surface(
+                    onClick = onImprove, enabled = canImprove && !busy,
+                    shape = RoundedCornerShape(30.dp),
+                    color = if (canImprove && !busy) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest,
+                    modifier = Modifier.weight(1f).height(56.dp),
+                ) {
+                    Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                        if (busy) Spinner(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                        else Icon(Icons.Filled.AutoAwesome, null, Modifier.size(18.dp), tint = if (canImprove) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.size(8.dp))
+                        Text(
+                            "Mieux mutualiser", style = MaterialTheme.typography.titleSmall,
+                            color = if (canImprove && !busy) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+            Text(
+                "Le chef remplace un plat par une recette qui réutilise davantage les mêmes ingrédients. Entrées et desserts restent en place.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(8.dp))
+        }
+    }
+}

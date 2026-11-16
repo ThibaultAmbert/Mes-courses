@@ -1,6 +1,8 @@
 package fr.mescourses.app.ui.catalog
 
 import androidx.compose.foundation.layout.Arrangement
+import fr.mescourses.app.ui.components.BusyBar
+import fr.mescourses.app.ui.components.Spinner
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -88,7 +90,7 @@ fun CatalogScreen(firstRun: Boolean, onDone: () -> Unit) {
             )
 
             st.working?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+            if (busy) BusyBar(Modifier.fillMaxWidth())
             else st.lastResult?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
 
             if (firstRun) {
@@ -124,7 +126,9 @@ private fun SiteRow(id: String, st: CatalogStatus, busy: Boolean, onInstall: () 
                 )
             }
             when {
-                st.installing == id -> CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                st.installing == id -> st.installProgress?.let { p ->
+                    CircularProgressIndicator(progress = { p }, modifier = Modifier.size(28.dp), strokeWidth = 3.dp)
+                } ?: Spinner(Modifier.size(24.dp), strokeWidth = 2.dp)
                 !installed -> Button(onClick = onInstall, enabled = !busy) { Text("Télécharger") }
                 st.outdated(id) -> OutlinedButton(onClick = onInstall, enabled = !busy) { Text("Mettre à jour") }
             }
@@ -181,7 +185,7 @@ private fun EmbedderRow(st: CatalogStatus, onInstall: () -> Unit, onCancel: () -
                 val progress = (st.embedderDownloaded.toFloat() / st.embedderTotal.toFloat()).coerceIn(0f, 1f)
                 LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
             } else {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                BusyBar(Modifier.fillMaxWidth())
             }
         }
         st.embedderError?.let { err ->
