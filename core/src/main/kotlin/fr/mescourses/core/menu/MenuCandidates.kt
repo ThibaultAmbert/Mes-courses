@@ -486,7 +486,7 @@ class CandidateFinder(
         var done = 0
         val results = queries.map { q ->
             async {
-                gate.withPermit { runCatching { searcher.search(q, sites, PER_SITE) }.getOrNull() }.also { synchronized(gate) { onDone(++done) } }
+                gate.withPermit { fr.mescourses.core.runCatchingCancellable { searcher.search(q, sites, PER_SITE) }.getOrNull() }.also { synchronized(gate) { onDone(++done) } }
             }
         }.awaitAll()
         val answered = results.filterNotNull()
@@ -517,7 +517,7 @@ class CandidateFinder(
         val list = pantry()
         hits.map { hit ->
             async {
-                val recipe = gate.withPermit { runCatching { importer.import(hit.url) }.getOrNull() }
+                val recipe = gate.withPermit { fr.mescourses.core.runCatchingCancellable { importer.import(hit.url) }.getOrNull() }
                 synchronized(gate) { onDone(++done) }
                 recipe?.takeIf { it.ingredients.size >= 3 && !index.isBanned(it.title) }
                     ?.let { r ->

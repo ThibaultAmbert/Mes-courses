@@ -160,7 +160,7 @@ class MenuPlannerTest {
         "pot-au-feu_4" to "Pot-au-feu", "curry-chou-fleur_5" to "Curry de chou-fleur aux pois chiches", "mousse-chocolat_6" to "Mousse au chocolat",
         "soupe-courge_7" to "Soupe de courge",
     )
-    private val fetched = mutableListOf<String>()
+    private val fetched = java.util.concurrent.CopyOnWriteArrayList<String>()
     private val web = PageFetcher { url ->
         fetched += url
         if ("recherche.aspx" in url) searchPage(*titles.entries.map { it.key to it.value }.toTypedArray())
