@@ -25,11 +25,13 @@ import fr.mescourses.core.repository.RecipeRepository
 import fr.mescourses.core.season.Seasonality
 import fr.mescourses.core.shopping.Pantry
 import fr.mescourses.core.shopping.ShoppingListMerger
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.temporal.ChronoField
 
@@ -123,7 +125,8 @@ data class Candidate(
             recipe: Recipe, wishes: MenuWishes, history: MenuHistory, today: LocalDate, pantry: List<String>, fromCookbook: Boolean,
             rating: Double? = null, entry: CatalogEntry? = null, course: Course? = null,
         ): Candidate {
-            val bought = recipe.ingredients.map { FoodName.clean(it.name) }.filter { it.isNotBlank() && !Pantry.isStaple(it, pantry) }
+            val staple = Pantry.matcher(pantry)
+            val bought = recipe.ingredients.map { FoodName.clean(it.name) }.filter { it.isNotBlank() && !staple.isStaple(it) }
             val keys = bought.map(IngredientOverlap::key).filter { it.isNotEmpty() }.toSet()
             val names = recipe.ingredients.map { it.name }
             val season = Seasonality.report(listOf(recipe.title) + names, today.month)
@@ -251,8 +254,10 @@ class CandidateFinder(
             "Batch cooking" to "batch cooking",
         )
 
+        private val usefulWordsRegex = Regex("[^\\p{L}\\p{N} '-]")
+
         private fun usefulWords(wish: String): List<String> =
-            wish.lowercase().replace(Regex("[^\\p{L}\\p{N} '-]"), " ").split(' ', '\'')
+            wish.lowercase().replace(usefulWordsRegex, " ").split(' ', '\'')
                 .filter { it.length > 1 && it.stripAccents() !in stopWords }
 
         /** Mots utiles d'une envie libre : « une raclette samedi » → « raclette ». */
@@ -381,9 +386,9 @@ class CandidateFinder(
         /** Tirage : deux recherches avec des nombres différents ne sortent pas les mêmes recettes du catalogue. */
         seed: Int? = null,
         onProgress: (String) -> Unit = {},
-    ): FindResult {
+    ): FindResult = withContext(Dispatchers.Default) {
         val w = wishes.normalized()
-        local()?.let { store -> findLocal(store, w, round, exclude, seed, onProgress).takeIf { it.candidates.size >= w.meals }?.let { return it } }
+        local()?.let { store -> findLocal(store, w, round, exclude, seed, onProgress).takeIf { it.candidates.size >= w.meals }?.let { return@withContext it } }
         val date = today()
         val cookbook = recipes.all()
         val past = MenuHistory(history.all(), cookbook, date)
@@ -400,7 +405,7 @@ class CandidateFinder(
 
         val fromSites = import(hits, w, past, date, index) { done -> onProgress("Lecture des recettes… ($done/${hits.size})") }
         val fromBook = cookbookCandidates(cookbook, w, past, date)
-        return FindResult((fromSites + fromBook).sortedByDescending { it.base }, queries, failed)
+        FindResult((fromSites + fromBook).sortedByDescending { it.base }, queries, failed)
     }
 
     /**
@@ -410,8 +415,8 @@ class CandidateFinder(
     suspend fun forCourse(
         courses: Set<fr.mescourses.core.catalog.Course>, count: Int, wishes: MenuWishes,
         exclude: Set<String> = emptySet(), seed: Int? = null, fallbackWords: String = "",
-    ): List<Candidate> {
-        if (count <= 0) return emptyList()
+    ): List<Candidate> = withContext(Dispatchers.Default) {
+        if (count <= 0) return@withContext emptyList()
         val date = today()
         val cookbook = recipes.all()
         val past = MenuHistory(history.all(), cookbook, date)
@@ -431,15 +436,15 @@ class CandidateFinder(
             // Au plus 2 recettes par site si possible, mais on complète pour atteindre le nombre demandé.
             val varied = perSite(shuffled, 2).take(count)
             val picked = varied + (shuffled - varied.toSet()).take(count - varied.size)
-            if (picked.isNotEmpty()) return picked
+            if (picked.isNotEmpty()) return@withContext picked
         }
-        if (fallbackWords.isBlank()) return emptyList()
+        if (fallbackWords.isBlank()) return@withContext emptyList()
         val (lists, _) = searchAll(listOf(fallbackWords)) {}
         val hits = lists.flatten()
             .filter { RecipeSites.normalize(it.url) !in excluded && !index.isBanned(it.title) && !past.eatenRecently(it.title, it.url) }
             .distinctBy { RecipeSites.normalize(it.url) }
             .take(count * 3)
-        return import(hits, wishes.copy(time = CookingTime.LONG), past, date, index) {}.take(count)
+        import(hits, wishes.copy(time = CookingTime.LONG), past, date, index) {}.take(count)
     }
 
     /** Recherche à la demande (outil du LLM, « autre recette ») : quelques candidates pour des mots donnés. */
@@ -450,7 +455,7 @@ class CandidateFinder(
         seed: Int? = null,
         /** Types de recette voulus (plats par défaut ; entrées ou desserts pour « ajoute un dessert »). */
         courses: Set<fr.mescourses.core.catalog.Course> = CatalogQuery.MEALS,
-    ): List<Candidate> {
+    ): List<Candidate> = withContext(Dispatchers.Default) {
         val date = today()
         val cookbook = recipes.all()
         val past = MenuHistory(history.all(), cookbook, date)
@@ -466,14 +471,14 @@ class CandidateFinder(
             // « raclette », « crêpes » : pas toujours rangés parmi les plats, on élargit si rien ne sort.
             val found = fromCatalog(store, base, wishes, past, date, index, excluded)
                 .ifEmpty { fromCatalog(store, base.copy(courses = emptySet()), wishes, past, date, index, excluded) }
-            if (found.isNotEmpty()) return found.take(limit)
-            if (sites.isNotEmpty()) return emptyList()
+            if (found.isNotEmpty()) return@withContext found.take(limit)
+            if (sites.isNotEmpty()) return@withContext emptyList()
         }
-        if (text.isBlank()) return emptyList()
+        if (text.isBlank()) return@withContext emptyList()
         val (lists, _) = searchAll(listOf(text.trim())) {}
         val hits = lists.flatten().filter { acceptable(it, wishes, index, past, excluded) }
             .distinctBy { RecipeSites.normalize(it.url) }.take(limit)
-        return import(hits, wishes, past, date, index) {}.sortedByDescending { it.base }
+        import(hits, wishes, past, date, index) {}.sortedByDescending { it.base }
     }
 
     private suspend fun searchAll(queries: List<String>, onDone: (Int) -> Unit): Pair<List<List<RecipeHit>>, List<String>> = coroutineScope {

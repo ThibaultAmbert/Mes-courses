@@ -12,8 +12,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -163,6 +165,8 @@ fun MenuScreen(onOpenSettings: () -> Unit, onOpenRecipe: (Long) -> Unit, onOpenS
     // « Continuer en arrière-plan » : la préparation continue, l'écran revient à l'accueil.
     var prepHidden by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(state.validation == null) { if (state.validation == null) prepHidden = false }
+    var lastValidation by remember { mutableStateOf(state.validation) }
+    if (state.validation != null) lastValidation = state.validation
 
     val screen = when {
         state.validation != null && !prepHidden -> Screen.PREPARATION
@@ -233,7 +237,7 @@ fun MenuScreen(onOpenSettings: () -> Unit, onOpenRecipe: (Long) -> Unit, onOpenS
                     onRestart = vm::restart,
                     onValidate = { askNotifications(); vm.validate() },
                 )
-                Screen.PREPARATION -> state.validation?.let { v ->
+                Screen.PREPARATION -> (state.validation ?: lastValidation)?.let { v ->
                     PreparationScreen(v, dishes, modelLoading = state.model == ModelStatus.Loading, onBackground = { prepHidden = true; vm.goHome() })
                 }
                 Screen.WEEK -> WeekScreen(

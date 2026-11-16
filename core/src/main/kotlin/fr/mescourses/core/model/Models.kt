@@ -126,9 +126,11 @@ data class ShoppingItem(
     val checked: Boolean = false,
 )
 
+private val COMBINING_MARKS = Regex("\\p{InCombiningDiacriticalMarks}+")
+
 /** Retire les accents (é → e, ç → c, œ → oe…). */
 fun String.stripAccents(): String {
     val normalized = java.text.Normalizer.normalize(this, java.text.Normalizer.Form.NFD)
-    return normalized.replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
+    return normalized.replace(COMBINING_MARKS, "")
         .replace("œ", "oe").replace("Œ", "OE").replace("æ", "ae").replace("Æ", "AE")
 }

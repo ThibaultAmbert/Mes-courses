@@ -10,6 +10,9 @@ import fr.mescourses.core.model.MenuDish
 import fr.mescourses.core.model.Portions
 import fr.mescourses.core.shopping.Aisle
 import fr.mescourses.core.visual.DishVisuals
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -73,5 +76,22 @@ class BalanceVisualsAislesTest {
         assertEquals(Aisle.FRUITS_LEGUMES, Aisle.of("Persil"))
         assertEquals(Aisle.AUTRES, Aisle.of("Truc inconnu"))
         assertTrue(Aisle.FRUITS_LEGUMES.ordinal < Aisle.MAISON.ordinal)
+    }
+
+    @Test fun equilibrage_concurrent_sans_erreur() = runTest {
+        val inputs = listOf(
+            listOf("Saumon", "poireaux", "riz complet"),
+            listOf("Dahl de lentilles corail", "épinards", "riz basmati"),
+            listOf("Omelette", "petits pois", "pommes de terre"),
+            listOf("Velouté de potiron"),
+        )
+        val results = (0 until 32).map { i ->
+            async(Dispatchers.Default) {
+                PlateBalance.components(inputs[i % inputs.size]) to PlateBalance.protein(inputs[i % inputs.size])
+            }
+        }.awaitAll()
+        assertEquals(32, results.size)
+        assertEquals(setOf(PROTEINE, LEGUMES, FECULENT) to "saumon", results[0])
+        assertEquals(setOf(LEGUMES) to null, results[3])
     }
 }

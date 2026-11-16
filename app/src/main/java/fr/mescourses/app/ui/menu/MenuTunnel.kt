@@ -2,6 +2,7 @@
 
 package fr.mescourses.app.ui.menu
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import fr.mescourses.app.ui.components.BusyBar
 import fr.mescourses.app.ui.components.Spinner
@@ -12,6 +13,10 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -165,11 +170,13 @@ private val LOGOS = mapOf(
     "picnic" to fr.mescourses.app.R.drawable.logo_picnic,
 )
 
+private val PROGRESS_REGEX = Regex("""\((\d+)/(\d+)\)""")
+
 @Composable
 internal fun SearchScreen(progress: String?, modelLoading: Boolean, onCancel: () -> Unit) {
     // Horloge d'affichage : l'animation tourne même quand Android réduit ou coupe les animations.
-    // Le temps n'est lu que dans les lambdas de dessin (offset, graphicsLayer) : à chaque image, seules les
-    // couches bougent, l'écran n'est pas recomposé (sinon saccades quand la recherche et le modèle tournent).
+    // Le temps n'est lu que dans les lambdas de dessin (graphicsLayer) : à chaque image, seules les
+    // couches bougent, l'écran n'est pas recomposé ni réagencé (sinon saccades quand la recherche et le modèle tournent).
     val time = remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
     LaunchedEffect(Unit) {
         val start = androidx.compose.runtime.withFrameNanos { it }
@@ -186,7 +193,7 @@ internal fun SearchScreen(progress: String?, modelLoading: Boolean, onCancel: ()
     val steps = listOf("Lecture de tes envies", "Recettes de saison sur les sites", "Le chef choisit les plats", "Entrées et desserts")
     // Avancement : l'étape, et dans l'étape le « (n/m) » que donne le moteur (sites interrogés, recettes lues).
     val sub = remember(progress) {
-        progress?.let { Regex("""\((\d+)/(\d+)\)""").find(it) }
+        progress?.let { PROGRESS_REGEX.find(it) }
             ?.let { m -> (m.groupValues[1].toFloat() / m.groupValues[2].toFloat().coerceAtLeast(1f)).coerceIn(0f, 1f) } ?: 0f
     }
     val target = when (stage) { 0 -> 0.03f; 1 -> 0.05f + 0.55f * sub; 2 -> 0.68f; else -> 0.86f + 0.1f * sub }
@@ -204,7 +211,7 @@ internal fun SearchScreen(progress: String?, modelLoading: Boolean, onCancel: ()
                 OrbitBadge(id, 92, 44, i + SITES_OUTER.size, angle = { -time.floatValue * 360f / 22f + i * 120f + 60f }, clock = { time.floatValue })
             }
             Box(
-                Modifier.offset { IntOffset(0, (-6f * wave()).dp.roundToPx()) }.size(104.dp).clip(CircleShape).background(Cuisine.Tomato),
+                Modifier.graphicsLayer { translationY = (-6f * wave()).dp.toPx() }.size(104.dp).clip(CircleShape).background(Cuisine.Tomato),
                 contentAlignment = Alignment.Center,
             ) { Icon(Icons.Filled.RestaurantMenu, "Le chef", tint = Color.White, modifier = Modifier.size(50.dp)) }
         }
@@ -219,7 +226,14 @@ internal fun SearchScreen(progress: String?, modelLoading: Boolean, onCancel: ()
                 gapSize = 0.dp,
                 drawStopIndicator = {},
             )
-            if (modelLoading) ModelLoadingCard()
+            AnimatedVisibility(
+                visible = modelLoading,
+                enter = fadeIn(tween(180)) + expandVertically(tween(200)),
+                exit = fadeOut(tween(150)) + shrinkVertically(tween(180)),
+                label = "searchModelLoading",
+            ) {
+                ModelLoadingCard()
+            }
             steps.forEachIndexed { i, label -> StepLine(label, done = i < stage, active = i == stage) }
         }
     }
@@ -234,14 +248,14 @@ private fun OrbitBadge(siteId: String, radius: Int, size: Int, order: Int, angle
         kotlinx.coroutines.delay(order * 140L)
         appear.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.5f, stiffness = 300f))
     }
-    // Position, taille et ombre calculées au dessin, sur la couche du logo : rien n'est recomposé à chaque image.
+    // Position, taille et ombre calculées au dessin, sur la couche du logo : rien n'est recomposé ni réagencé à chaque image.
     Box(
         Modifier
-            .offset {
-                val rad = Math.toRadians(angle().toDouble())
-                IntOffset((cos(rad) * radius.dp.toPx()).roundToInt(), (sin(rad) * radius.dp.toPx()).roundToInt())
-            }
             .graphicsLayer {
+                val rad = Math.toRadians(angle().toDouble())
+                val r = radius.dp.toPx()
+                translationX = (cos(rad) * r).toFloat()
+                translationY = (sin(rad) * r).toFloat()
                 val beat = 1f + 0.12f * sin(Math.toRadians((clock() * 360f / 14f * 4 + order * 60).toDouble())).toFloat().coerceAtLeast(0f)
                 val sc = appear.value * beat
                 scaleX = sc; scaleY = sc
@@ -728,7 +742,14 @@ internal fun PreparationScreen(v: Validation, dishes: List<MenuDish>, modelLoadi
                 if (v.current.isNotBlank()) "En cours : ${v.current}. Tu peux quitter, on te prévient à la fin." else "Tu peux quitter l'app, le chef continue.",
                 style = MaterialTheme.typography.bodyMedium, color = Cuisine.CoffeeMuted,
             )
-            if (modelLoading) ModelLoadingCard()
+            AnimatedVisibility(
+                visible = modelLoading,
+                enter = fadeIn(tween(180)) + expandVertically(tween(200)),
+                exit = fadeOut(tween(150)) + shrinkVertically(tween(180)),
+                label = "prepModelLoading",
+            ) {
+                ModelLoadingCard()
+            }
             steps.forEachIndexed { i, (label, done) -> StepLine(label, done = done, active = i == activeIndex) }
         }
         Surface(

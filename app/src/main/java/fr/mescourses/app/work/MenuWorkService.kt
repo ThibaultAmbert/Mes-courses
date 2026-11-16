@@ -11,6 +11,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -50,11 +51,21 @@ class MenuWorkService : Service() {
         private const val CHANNEL = "chef"
         private const val NOTIFICATION_ID = 42
         private const val EXTRA_TEXT = "text"
+        private const val UPDATE_INTERVAL_MS = 250L
+
+        private val notifyLock = Any()
+        @Volatile private var channelReady = false
+        @Volatile private var active = false
+        @Volatile private var lastText: String? = null
+        @Volatile private var lastNotifyAt = 0L
 
         private fun notification(context: Context, text: String): Notification {
-            val nm = context.getSystemService(NotificationManager::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && nm.getNotificationChannel(CHANNEL) == null) {
-                nm.createNotificationChannel(NotificationChannel(CHANNEL, "Le chef au travail", NotificationManager.IMPORTANCE_LOW))
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !channelReady) {
+                val nm = context.getSystemService(NotificationManager::class.java)
+                if (nm.getNotificationChannel(CHANNEL) == null) {
+                    nm.createNotificationChannel(NotificationChannel(CHANNEL, "Le chef au travail", NotificationManager.IMPORTANCE_LOW))
+                }
+                channelReady = true
             }
             val open = PendingIntent.getActivity(
                 context, 0,
@@ -74,6 +85,11 @@ class MenuWorkService : Service() {
         }
 
         fun start(context: Context, text: String) {
+            synchronized(notifyLock) {
+                active = true
+                lastText = text
+                lastNotifyAt = SystemClock.elapsedRealtime()
+            }
             runCatching {
                 ContextCompat.startForegroundService(context, Intent(context, MenuWorkService::class.java).putExtra(EXTRA_TEXT, text))
             }
@@ -81,10 +97,21 @@ class MenuWorkService : Service() {
 
         /** Met à jour le texte de la notification (« recette 2/5 »). */
         fun update(context: Context, text: String) {
-            runCatching { context.getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification(context, text)) }
+            synchronized(notifyLock) {
+                if (!active || text == lastText) return
+                val now = SystemClock.elapsedRealtime()
+                if (now - lastNotifyAt < UPDATE_INTERVAL_MS) return
+                lastText = text
+                lastNotifyAt = now
+                runCatching { context.getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification(context, text)) }
+            }
         }
 
         fun stop(context: Context) {
+            synchronized(notifyLock) {
+                active = false
+                lastText = null
+            }
             runCatching { context.stopService(Intent(context, MenuWorkService::class.java)) }
         }
     }
