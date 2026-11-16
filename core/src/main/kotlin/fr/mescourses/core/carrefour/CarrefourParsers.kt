@@ -97,13 +97,14 @@ object CarrefourParsers {
         when (e) {
             is JsonArray -> e.forEach { collectCartLines(it, out, depth + 1) }
             is JsonObject -> {
-                val qty = quantityKeys.firstNotNullOfOrNull { k -> (e[k] as? JsonPrimitive)?.intOrNull }
-                val product = ProductParser.parse(e).firstOrNull()
-                if (qty != null && product != null && product.ean.length >= 8) {
+                val before = out.size
+                e.values.forEach { collectCartLines(it, out, depth + 1) }
+                if (out.size > before) return
+                val qty = quantityKeys.firstNotNullOfOrNull { k -> (e[k] as? JsonPrimitive)?.intOrNull } ?: return
+                val product = ProductParser.parse(e).firstOrNull() ?: return
+                if (product.ean.length >= 8) {
                     val subtotal = listOf("totalItemPrice", "subtotal", "lineTotal", "totalPrice").firstNotNullOfOrNull { k -> num(e[k]) }
                     out.putIfAbsent(product.ean, CartLineItem(product.ean, product.name, qty, subtotal, product.available && !lineUnavailable(e), product.imageUrl))
-                } else {
-                    e.values.forEach { collectCartLines(it, out, depth + 1) }
                 }
             }
             else -> Unit

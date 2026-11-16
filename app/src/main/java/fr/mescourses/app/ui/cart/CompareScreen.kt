@@ -92,6 +92,8 @@ class CompareViewModel(private val c: AppContainer) : ViewModel() {
                     ready = { b -> c.session(b.retailer).let { s -> if (s.ensureSession()) null else s.problem() } },
                     queries = c.settings.current.queryMap(),
                 ).collect { q -> _state.update { it.copy(quotes = it.quotes + (q.retailer to q)) } }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _state.update { it.copy(error = e.message) }
             } finally {

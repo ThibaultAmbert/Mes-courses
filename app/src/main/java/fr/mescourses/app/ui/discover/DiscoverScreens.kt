@@ -346,7 +346,7 @@ private fun FiltersSheet(vm: DiscoverViewModel, onDismiss: () -> Unit, onOpenCat
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Filtres", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-                if (filters.isNotEmpty()) TextButton(onClick = { filters.forEach { vm.toggleFilterQuietly(it) } }) { Text("Tout effacer") }
+                if (filters.isNotEmpty()) TextButton(onClick = vm::clearFiltersQuietly) { Text("Tout effacer") }
             }
             FilterGroup.entries.forEach { group ->
                 Text(group.label + if (group.single) " (un seul)" else "", style = MaterialTheme.typography.titleSmall)
@@ -772,7 +772,7 @@ fun RecipeBrowserScreen(startUrl: String, onClose: () -> Unit, onOpenRecipe: (Lo
                                         return
                                     }
                                     url?.let { currentUrl = it }
-                                    v?.let { w -> scope.launch { delay(800); scan(w) } }
+                                    v?.let { w -> scope.launch { delay(800); if (view === w) scan(w) } }
                                 }
                             }
                             // Retour depuis une recette simplifiée : on restaure l'historique au lieu de repartir de la page de départ.
@@ -782,6 +782,7 @@ fun RecipeBrowserScreen(startUrl: String, onClose: () -> Unit, onOpenRecipe: (Lo
                         }
                     },
                     onRelease = { wv ->
+                        if (view === wv) view = null
                         vm.webState = android.os.Bundle().also { wv.saveState(it) }
                         wv.destroy()
                     },

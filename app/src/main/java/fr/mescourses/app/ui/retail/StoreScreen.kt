@@ -43,6 +43,8 @@ import fr.mescourses.app.ui.components.StatChip
 import fr.mescourses.core.carrefour.Store
 import fr.mescourses.core.leclerc.LeclercClient
 import fr.mescourses.core.retail.Retailer
+import fr.mescourses.core.runCatchingCancellable
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -63,6 +65,7 @@ fun StoreScreen(retailer: Retailer, onBack: () -> Unit, onOpenSite: (String) -> 
     var postalCode by remember { mutableStateOf("") }
     var stores by remember { mutableStateOf<List<Store>>(emptyList()) }
     var loading by remember { mutableStateOf(false) }
+    var choosing by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val who = retailer.label
     val currentName = settings.storeName(retailer)
@@ -86,6 +89,8 @@ fun StoreScreen(retailer: Retailer, onBack: () -> Unit, onOpenSite: (String) -> 
                 c.backend(retailer).stores(address?.latitude ?: 0.0, address?.longitude ?: 0.0, postalCode, address?.locality ?: "")
             } ?: error("$who ne répond pas : ouvre le site une fois (bouton ci-dessous), puis réessaie.")
             if (stores.isEmpty()) error = "Aucun drive $who trouvé autour de $postalCode."
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             c.session(retailer).onError(e)
             error = e.message
@@ -94,18 +99,26 @@ fun StoreScreen(retailer: Retailer, onBack: () -> Unit, onOpenSite: (String) -> 
         }
     }
 
-    fun choose(store: Store) = scope.launch {
-        // Nouveau drive : l'ancien contexte (identifiant de panier, recherches en cache) ne vaut plus.
-        c.backend(retailer).forgetContext()
-        when (retailer) {
-            Retailer.CARREFOUR -> c.settings.update { it.copy(storeId = store.id, storeName = store.name, storeRef = store.ref.orEmpty(), basketServiceId = "", facilityServiceId = "") }
-            Retailer.LECLERC -> LeclercClient.storeOf(store)?.let { s ->
-                c.settings.update { it.copy(leclercStoreId = s.id, leclercNoPR = s.noPR, leclercHost = s.host, leclercStoreName = s.name, leclercPath = s.path) }
-                // La session suit le drive ouvert dans le navigateur : on ouvre ce drive dans la WebView, puis on vérifie.
-                runCatching { c.bridge(retailer).reloadAndWait() }
-                c.session(retailer).check()
+    fun choose(store: Store) {
+        if (choosing) return
+        scope.launch {
+            choosing = true
+            try {
+                // Nouveau drive : l'ancien contexte (identifiant de panier, recherches en cache) ne vaut plus.
+                c.backend(retailer).forgetContext()
+                when (retailer) {
+                    Retailer.CARREFOUR -> c.settings.update { it.copy(storeId = store.id, storeName = store.name, storeRef = store.ref.orEmpty(), basketServiceId = "", facilityServiceId = "") }
+                    Retailer.LECLERC -> LeclercClient.storeOf(store)?.let { s ->
+                        c.settings.update { it.copy(leclercStoreId = s.id, leclercNoPR = s.noPR, leclercHost = s.host, leclercStoreName = s.name, leclercPath = s.path) }
+                        // La session suit le drive ouvert dans le navigateur : on ouvre ce drive dans la WebView, puis on vérifie.
+                        runCatchingCancellable { c.bridge(retailer).reloadAndWait() }
+                        c.session(retailer).check()
+                    }
+                    Retailer.AUCHAN -> Unit
+                }
+            } finally {
+                choosing = false
             }
-            Retailer.AUCHAN -> Unit
         }
     }
 
@@ -151,6 +164,7 @@ fun StoreScreen(retailer: Retailer, onBack: () -> Unit, onOpenSite: (String) -> 
                 val selected = store.id == currentId
                 Card(
                     onClick = { choose(store) },
+                    enabled = !choosing,
                     shape = MaterialTheme.shapes.medium,
                     colors = CardDefaults.cardColors(
                         containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLowest,

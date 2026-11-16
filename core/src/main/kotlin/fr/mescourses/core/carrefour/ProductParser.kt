@@ -33,9 +33,13 @@ data class Product(
     val description: String? = null,
 ) {
     val ean: String get() = identifiers["ean"] ?: identifiers["gtin13"] ?: identifiers["gtin"] ?: id
-    val organic: Boolean get() = Regex("""\bbio\b""", RegexOption.IGNORE_CASE).containsMatchIn(name + " " + (brand ?: ""))
+    val organic: Boolean get() = BIO_RE.containsMatchIn(name + " " + (brand ?: ""))
 
     fun idFor(param: String?): String = param?.let { p -> identifiers.entries.firstOrNull { it.key.equals(p, true) }?.value } ?: id
+
+    companion object {
+        private val BIO_RE = Regex("""\bbio\b""", RegexOption.IGNORE_CASE)
+    }
 }
 
 /**

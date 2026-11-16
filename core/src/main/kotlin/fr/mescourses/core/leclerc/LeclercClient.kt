@@ -10,8 +10,7 @@ import fr.mescourses.core.carrefour.Store
 import fr.mescourses.core.carrefour.TimeSlot
 import fr.mescourses.core.retail.Retailer
 import fr.mescourses.core.retail.RetailerHttp
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
+import fr.mescourses.core.retail.TtlCache
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -36,10 +35,8 @@ class LeclercClient(
 
     private val http = RetailerHttp(transport, who, LeclercRoutes.FORBIDDEN, rateLimitWaitMs, ::classify)
 
-    private data class Cached<T>(val at: Long, val value: T)
     private val cacheTtlMs = 5 * 60 * 1000L
-    private val searchCache = HashMap<String, Cached<List<Product>>>()
-    private val cacheLock = Mutex()
+    private val searchCache = TtlCache<List<Product>>(cacheTtlMs, maxEntries = 128, now = now)
     /** Format d'écriture du panier accepté la dernière fois (voir [LeclercRoutes.cartVariants]). */
     @Volatile private var workingVariant = 0
 
@@ -101,9 +98,9 @@ class LeclercClient(
     override suspend fun searchWithUnavailable(query: String, limit: Int): List<Product> {
         val s = currentStore()
         val key = s.id + "|" + query.trim().lowercase()
-        cacheLock.withLock { searchCache[key]?.takeIf { now() - it.at < cacheTtlMs }?.let { return it.value.take(limit) } }
+        searchCache.get(key)?.let { return it.value.take(limit) }
         val products = LeclercParsers.parseSearch(storePage(LeclercRoutes.search(s, query)))
-        cacheLock.withLock { searchCache[key] = Cached(now(), products) }
+        searchCache.put(key, products)
         return products.take(limit)
     }
 

@@ -22,6 +22,8 @@ class RetailerHttp(
         repeat(2) { attempt ->
             val r = try {
                 transport.request(method, url, headers, body)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: CarrefourException) {
                 throw e
             } catch (e: Exception) {
@@ -42,29 +44,52 @@ class RetailerHttp(
 
 /** Petits outils de lecture partagés par les lecteurs Leclerc et Auchan. */
 internal object Scrape {
+    private val EURO_RE = Regex("""(\d+(?:[   ]\d{3})*(?:[.,]\d+)?)""")
+    private val SPACE_RE = Regex("[   ]")
+    private val DEC_ENTITY_RE = Regex("&#(\\d+);")
+    private val HEX_ENTITY_RE = Regex("&#x([0-9a-fA-F]+);")
+
     /** « 11,88 € » → 11.88. */
     fun euro(text: String?): Double? {
-        val m = Regex("""(\d+(?:[   ]\d{3})*(?:[.,]\d+)?)""").find(text ?: return null) ?: return null
-        return m.groupValues[1].replace(Regex("[   ]"), "").replace(',', '.').toDoubleOrNull()
+        val m = EURO_RE.find(text ?: return null) ?: return null
+        return m.groupValues[1].replace(SPACE_RE, "").replace(',', '.').toDoubleOrNull()
     }
 
     fun decodeEntities(s: String): String = s
-        .replace(Regex("&#(\\d+);")) { String(Character.toChars(it.groupValues[1].toInt())) }
-        .replace(Regex("&#x([0-9a-fA-F]+);")) { String(Character.toChars(it.groupValues[1].toInt(16))) }
+        .replace(DEC_ENTITY_RE) { m ->
+            val cp = m.groupValues[1].toIntOrNull()
+            if (cp != null && Character.isValidCodePoint(cp)) String(Character.toChars(cp)) else m.value
+        }
+        .replace(HEX_ENTITY_RE) { m ->
+            val cp = m.groupValues[1].toIntOrNull(16)
+            if (cp != null && Character.isValidCodePoint(cp)) String(Character.toChars(cp)) else m.value
+        }
         .replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"")
         .replace("&#39;", "'").replace("&apos;", "'").replace("&nbsp;", " ")
 
     /** Le plus petit objet `{…}` (chaînes respectées) qui contient la position `at`. */
     fun enclosingObject(raw: String, at: Int): String? {
+        if (raw.isEmpty() || at < 0) return null
         var start = -1
         var depth = 0
-        var i = at
+        var inStr = false
+        var i = at.coerceAtMost(raw.lastIndex)
+        // Si `at` pointe sur le guillemet ouvrant d'une clé JSON (« "iIdProduit" »),
+        // reculer d'un caractère évite d'inverser la parité de `inStr`.
+        if (raw[i] == '"') i--
         while (i >= 0) {
             val c = raw[i]
-            if (c == '}') depth++
-            else if (c == '{') {
-                if (depth == 0) { start = i; break }
-                depth--
+            if (c == '"') {
+                var backslashes = 0
+                var j = i - 1
+                while (j >= 0 && raw[j] == '\\') { backslashes++; j-- }
+                if (backslashes % 2 == 0) inStr = !inStr
+            } else if (!inStr) {
+                if (c == '}') depth++
+                else if (c == '{') {
+                    if (depth == 0) { start = i; break }
+                    depth--
+                }
             }
             i--
         }

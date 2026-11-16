@@ -9,6 +9,7 @@ import fr.mescourses.core.carrefour.Product
 import fr.mescourses.core.carrefour.TimeSlot
 import fr.mescourses.core.retail.Retailer
 import fr.mescourses.core.retail.RetailerHttp
+import fr.mescourses.core.retail.TtlCache
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonArray
@@ -40,9 +41,8 @@ class AuchanClient(
 
     private val http = RetailerHttp(transport, who, AuchanRoutes.FORBIDDEN, rateLimitWaitMs, ::classify)
 
-    private data class Cached<T>(val at: Long, val value: T)
     private val cacheTtlMs = 5 * 60 * 1000L
-    private val searchCache = HashMap<String, Cached<List<Product>>>()
+    private val searchCache = TtlCache<List<Product>>(cacheTtlMs, maxEntries = 128, now = now)
     private val lock = Mutex()
     /** Produits vus en recherche : l'API panier ne donne ni les noms ni l'offre à rejouer. */
     private val seen = LinkedHashMap<String, Product>()
@@ -115,11 +115,11 @@ class AuchanClient(
     /** Garde les produits en rupture (stock 0, `available = false`) pour que le panier les signale. */
     override suspend fun searchWithUnavailable(query: String, limit: Int): List<Product> {
         val key = query.trim().lowercase()
-        lock.withLock { searchCache[key]?.takeIf { now() - it.at < cacheTtlMs }?.let { return it.value.take(limit) } }
+        searchCache.get(key)?.let { return it.value.take(limit) }
         val html = http.call("GET", AuchanRoutes.search(query), AuchanRoutes.HTML_HEADERS).body
         val products = AuchanParsers.parseSearch(html)
+        searchCache.put(key, products)
         lock.withLock {
-            searchCache[key] = Cached(now(), products)
             products.forEach { seen[it.id] = it }
             while (seen.size > 500) seen.remove(seen.keys.first())
         }

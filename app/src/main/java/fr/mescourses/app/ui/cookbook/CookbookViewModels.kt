@@ -11,12 +11,15 @@ import fr.mescourses.core.model.RecipeStatus
 import fr.mescourses.core.model.stripAccents
 import fr.mescourses.core.recipes.RecipeSites
 import fr.mescourses.core.shopping.ShoppingListMerger
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -37,7 +40,9 @@ class CookbookViewModel(private val c: AppContainer) : ViewModel() {
     private val all = c.recipes.observeAll().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     /** Nombre de recettes par liste, pour les onglets. */
-    val counts: StateFlow<Map<RecipeStatus, Int>> = combine(all, query) { list, _ -> list.groupingBy { it.status }.eachCount() }
+    val counts: StateFlow<Map<RecipeStatus, Int>> = all
+        .map { list -> list.groupingBy { it.status }.eachCount() }
+        .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     val recipes: StateFlow<List<Recipe>> = combine(all, query, tab) { list, q, t ->
@@ -46,7 +51,7 @@ class CookbookViewModel(private val c: AppContainer) : ViewModel() {
             val text = (r.title + " " + r.tags.joinToString(" ")).lowercase().stripAccents()
             words.all { it in text }
         }.let { l -> if (t == RecipeStatus.HISTORIQUE) l.sortedByDescending { it.lastCookedAt.orEmpty() } else l.sortedBy { it.title.lowercase() } }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun move(recipe: Recipe, status: RecipeStatus) = viewModelScope.launch {
         c.recipes.save(recipe.copy(status = status))
@@ -73,6 +78,8 @@ class CookbookViewModel(private val c: AppContainer) : ViewModel() {
                 discover.value = false
                 messages.value = "« $title » ajoutée aux favoris"
                 onDone(id)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 messages.value = "Import impossible : ${e.message}"
             } finally {

@@ -44,13 +44,25 @@ import fr.mescourses.core.carrefour.CarrefourRoutes
 import fr.mescourses.core.leclerc.LeclercRoutes
 import fr.mescourses.core.retail.Retailer
 import fr.mescourses.core.carrefour.HttpResponse
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
-/** Masque e-mails, téléphones, noms et adresses avant export d'une réponse. */
+private val EMAIL_RE = Regex("""[\w.+-]+@[\w-]+\.[\w.]+""")
+private val PHONE_RE = Regex("""(?<!\d)(?:\+33|0)[1-9](?:[ .-]?\d{2}){4}(?!\d)""")
+private val BEARER_RE = Regex("""Bearer\s+[A-Za-z0-9._~+/=-]+""", RegexOption.IGNORE_CASE)
+private val PII_JSON_RE = Regex(
+    """"(firstName|lastName|firstname|lastname|fullName|recipientName|name_on_card|customerName|email|phone|mobile|address|address1|address2|street|streetAddress|postalCode|zipCode|city|birthDate|iban|cardNumber|token|access_token|refresh_token|authorization|cookie)"\s*:\s*"[^"]*"""",
+    RegexOption.IGNORE_CASE,
+)
+
+/** Masque e-mails, téléphones, jetons, noms et adresses avant export d'une réponse. */
 fun anonymize(text: String): String = text
-    .replace(Regex("""[\w.+-]+@[\w-]+\.[\w.]+"""), "anonyme@exemple.invalid")
-    .replace(Regex("""(?<!\d)(?:\+33|0)[1-9](?:[ .-]?\d{2}){4}(?!\d)"""), "0600000000")
-    .replace(Regex(""""(firstName|lastName|firstname|lastname|name_on_card|customerName|email|phone|mobile|address1|address2|street|birthDate)"\s*:\s*"[^"]*""""), "\"$1\":\"***\"")
+    .replace(EMAIL_RE, "anonyme@exemple.invalid")
+    .replace(PHONE_RE, "0600000000")
+    .replace(BEARER_RE, "Bearer ***")
+    .replace(PII_JSON_RE, "\"$1\":\"***\"")
 
 /** Écran de test des requêtes des enseignes (accès caché : 7 appuis sur la version, dans Réglages). */
 @Composable
@@ -139,6 +151,8 @@ fun RetailerDebugScreen(onBack: () -> Unit, onOpenSite: (Retailer) -> Unit) {
                             val sent = if (leclercForm) LeclercRoutes.formBody(body.trim()) else body.ifBlank { null }
                             c.bridge(retailer).request(method, path, headers, sent)
                         }
+                    } catch (e: CancellationException) {
+                        throw e
                     } catch (e: Exception) {
                         error = "${e::class.simpleName} : ${e.message}"
                     }
@@ -186,18 +200,23 @@ fun RetailerDebugScreen(onBack: () -> Unit, onOpenSite: (Retailer) -> Unit) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = { summary = DebugReader.summarize(retailer, r.body) }) { Text("Lire avec l'app") }
                         OutlinedButton(onClick = {
-                            // Réponse complète dans un fichier : une page de drive dépasse la taille permise pour un texte partagé.
-                            val text = "${retailer.label} $method ${path.substringBefore('?')}\nstatut ${r.status}\n\n" + anonymize(r.body)
-                            val dir = java.io.File(context.cacheDir, "debug").apply { mkdirs() }
-                            val file = java.io.File(dir, "${retailer.name.lowercase()}-${System.currentTimeMillis()}.txt").apply { writeText(text) }
-                            val uri = FileProvider.getUriForFile(context, context.packageName + ".fichiers", file)
-                            context.startActivity(
-                                Intent.createChooser(
-                                    Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_STREAM, uri)
-                                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),
-                                    "Exporter la réponse (anonymisée)",
-                                ),
-                            )
+                            scope.launch {
+                                // Réponse complète dans un fichier : écrite hors UI et nettoyée pour limiter le cache.
+                                val text = "${retailer.label} $method ${path.substringBefore('?')}\nstatut ${r.status}\n\n" + anonymize(r.body)
+                                val file = withContext(Dispatchers.IO) {
+                                    val dir = java.io.File(context.cacheDir, "debug").apply { mkdirs() }
+                                    dir.listFiles()?.sortedByDescending { it.lastModified() }?.drop(4)?.forEach { it.delete() }
+                                    java.io.File(dir, "${retailer.name.lowercase()}-${System.currentTimeMillis()}.txt").apply { writeText(text) }
+                                }
+                                val uri = FileProvider.getUriForFile(context, context.packageName + ".fichiers", file)
+                                context.startActivity(
+                                    Intent.createChooser(
+                                        Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_STREAM, uri)
+                                            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),
+                                        "Exporter la réponse (anonymisée)",
+                                    ),
+                                )
+                            }
                         }) { Text("Exporter (fichier)") }
                     }
                     summary?.let { sm ->

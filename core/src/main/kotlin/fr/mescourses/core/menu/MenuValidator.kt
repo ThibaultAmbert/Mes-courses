@@ -1,5 +1,6 @@
 package fr.mescourses.core.menu
 
+import fr.mescourses.core.runCatchingCancellable
 import fr.mescourses.core.model.MenuDish
 import fr.mescourses.core.model.MenuHistoryEntry
 import fr.mescourses.core.model.PlannedMeal
@@ -51,6 +52,7 @@ class MenuValidator(
         var reused = 0
         var items = 0
         val failures = mutableListOf<String>()
+        val failedIndices = HashSet<Int>()
         val index = CookbookIndex(recipes.all())
         // Ingrédients déjà prévus par les plats précédents : proposés aux recettes suivantes.
         val bought = LinkedHashSet<String>()
@@ -62,11 +64,11 @@ class MenuValidator(
             val existing = dish.recipeId?.let { recipes.get(it) }
                 ?: dish.sourceUrl?.let { index.byUrl(it) }
                 ?: index.find(dish.title)?.takeUnless { it.banned || dish.sourceUrl != null }
-            val fromSite = if (existing == null) dish.sourceUrl?.let { url -> runCatching { webRecipe(url) }.getOrNull() } else null
+            val fromSite = if (existing == null) dish.sourceUrl?.let { url -> runCatchingCancellable { webRecipe(url) }.getOrNull() } else null
             val recipe = existing
                 ?: fromSite?.copy(id = 0, tags = (fromSite.tags + "menu").distinct())
                 ?: generate(dish, bought.toList())
-                ?: run { failures += dish.title; return@forEachIndexed }
+                ?: run { failures += dish.title; failedIndices += i; return@forEachIndexed }
             recipe.ingredients.map { it.name.lowercase() }.filter { it.length > 2 }.forEach { bought += it }
 
             val saved = recipe.copy(
@@ -95,7 +97,7 @@ class MenuValidator(
         onProgress(dishes.size, dishes.size, "")
         history?.add(past)
         // Les plats en échec restent dans le brouillon pour pouvoir réessayer.
-        draft.set(dishes.filter { it.title in failures })
+        draft.set(dishes.filterIndexed { i, _ -> i in failedIndices })
         return ValidationResult(created, reused, items, failures)
     }
 
@@ -113,7 +115,7 @@ class MenuValidator(
         var best: Recipe? = null
         var missing = emptyList<PlateBalance.Component>()
         for (attempt in 0 until 3) {
-            val text = runCatching {
+            val text = runCatchingCancellable {
                 generator.generate(
                     MenuPrompt.RECIPE_SYSTEM,
                     MenuPrompt.recipeRequest(dish, servings, alreadyBought.take(25), missing),
@@ -128,8 +130,10 @@ class MenuValidator(
             }
             val nowMissing = PlateBalance.missing(listOf(recipe.title) + recipe.ingredients.map { it.name })
             if (nowMissing.isEmpty()) return recipe
-            if (best == null || nowMissing.size < missing.size || missing.isEmpty()) best = recipe
-            missing = nowMissing
+            if (best == null || nowMissing.size < missing.size) {
+                best = recipe
+                missing = nowMissing
+            }
             if (attempt >= 1) break // une seule relance pour l'équilibre
         }
         return best?.copy(
@@ -148,7 +152,7 @@ class RecipeStepsWriter(private val generator: TextGenerator) {
     suspend fun complete(recipe: Recipe): Recipe? {
         val prompt = MenuPrompt.stepsRequest(recipe.title, recipe.servings, recipe.ingredients.map { it.raw }, recipe.description)
         repeat(2) { attempt ->
-            val text = runCatching {
+            val text = runCatchingCancellable {
                 generator.generate(MenuPrompt.RECIPE_SYSTEM, prompt, jsonSchema = RecipeResponseParser.STEPS_JSON_SCHEMA)
             }.getOrNull() ?: return@repeat
             val steps = RecipeResponseParser.parseSteps(text) ?: run {

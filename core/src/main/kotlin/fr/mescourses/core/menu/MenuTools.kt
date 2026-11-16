@@ -69,7 +69,13 @@ class MenuTools(
                 if (changing && limit != null && changes >= limit) {
                     return toolError("La retouche demandée est déjà faite : ne modifie rien d'autre. Réponds maintenant à l'utilisateur en une phrase.")
                 }
-                val result = try { run(args) } catch (e: Exception) { toolError(e.message ?: e.toString()) }
+                val result = try {
+                    run(args)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    toolError(e.message ?: e.toString())
+                }
                 if (changing && (result as? JsonObject)?.get("ok")?.toString() == "true") changes++
                 return result
             }

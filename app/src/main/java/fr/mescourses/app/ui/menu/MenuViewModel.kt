@@ -6,6 +6,7 @@ import fr.mescourses.core.catalog.Course
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import fr.mescourses.app.AppContainer
+import fr.mescourses.core.runCatchingCancellable
 import fr.mescourses.app.llm.ChatEvent
 import fr.mescourses.app.llm.ModelController
 import fr.mescourses.app.llm.ModelStatus
@@ -132,14 +133,15 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
     val draftServings: StateFlow<Map<String, Int>> = kotlinx.coroutines.flow.combine(c.draft.observe(), c.recipes.observeAll()) { list, book ->
         list.mapNotNull { d ->
             val servings = d.recipeId?.let { id -> book.firstOrNull { it.id == id }?.servings }
-                ?: d.sourceUrl?.let { runCatching { c.knownRecipe(it)?.servings }.getOrNull() }
+                ?: d.sourceUrl?.let { runCatchingCancellable { c.knownRecipe(it)?.servings }.getOrNull() }
             servings?.let { d.title to it }
         }.toMap()
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
     /** Personnes prévues par chaque recette du livre (pour la semaine validée). */
     val bookServings: StateFlow<Map<Long, Int>> = c.recipes.observeAll()
         .map { l -> l.associate { it.id to it.servings } }
+        .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
     fun childFactor(): Double = c.settings.current.childFactor
@@ -563,9 +565,9 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
                     // précédents sont laissées de côté tant qu'il en reste assez d'autres.
                     val round = draw()
                     val seed = draw()
-                    val found = runCatching { c.candidateFinder.find(wishes, round = round % 7, exclude = proposed, seed = seed) { progress(it) } }.getOrNull()
+                    val found = runCatchingCancellable { c.candidateFinder.find(wishes, round = round % 7, exclude = proposed, seed = seed) { progress(it) } }.getOrNull()
                         ?.takeIf { it.candidates.size >= wishes.meals * 2 }
-                        ?: runCatching { c.candidateFinder.find(wishes, round = round % 7, seed = seed) { progress(it) } }.getOrNull()
+                        ?: runCatchingCancellable { c.candidateFinder.find(wishes, round = round % 7, seed = seed) { progress(it) } }.getOrNull()
                     val list = found?.candidates.orEmpty().shuffled().sortedByDescending { (it.base * 2).toInt() }
                     // Les recettes que le compositeur retiendrait d'abord : la composition demandée y est toujours possible.
                     // … puis les autres, en alternant les sites pour que le chef ait vraiment le choix.
@@ -631,7 +633,7 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
         progress("Recherche des entrées et desserts…")
         val taken = c.draft.get().mapNotNull { it.sourceUrl }.toSet() + rejected
         suspend fun find(courses: Set<fr.mescourses.core.catalog.Course>, n: Int, words: String, course: fr.mescourses.core.catalog.Course) =
-            runCatching { c.candidateFinder.forCourse(courses, n, wishes, taken, draw(), words) }.getOrNull().orEmpty()
+            runCatchingCancellable { c.candidateFinder.forCourse(courses, n, wishes, taken, draw(), words) }.getOrNull().orEmpty()
                 .map { it.toDish(wishes.portions, course) }
         val starters = find(setOf(fr.mescourses.core.catalog.Course.ENTREE, fr.mescourses.core.catalog.Course.SOUPE, fr.mescourses.core.catalog.Course.SALADE), wishes.starters, "entrée", fr.mescourses.core.catalog.Course.ENTREE)
         val desserts = find(setOf(fr.mescourses.core.catalog.Course.DESSERT), wishes.desserts, "dessert", fr.mescourses.core.catalog.Course.DESSERT)
@@ -759,7 +761,7 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
         return pick() ?: run {
             progress("Recherche d'autres recettes…")
             val seen = rejected + c.candidates.all().mapNotNull { it.recipe.sourceUrl }
-            val more = runCatching { c.candidateFinder.find(wishes, round = ++searchRound, exclude = seen, seed = draw()) { progress(it) } }.getOrNull()
+            val more = runCatchingCancellable { c.candidateFinder.find(wishes, round = ++searchRound, exclude = seen, seed = draw()) { progress(it) } }.getOrNull()
             c.candidates.add(more?.candidates.orEmpty())
             pick()
         }
@@ -770,7 +772,7 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
         val siteName = site?.let { fr.mescourses.core.recipes.RecipeSites.byId(it)?.name }
         progress("Recherche" + (words?.let { " de « $it »" } ?: "") + (siteName?.let { " sur $it" } ?: "") + "…")
         val dishes = c.draft.get().filterIndexed { i, _ -> i != except }
-        val found = runCatching {
+        val found = runCatchingCancellable {
             if (course == null) c.candidateFinder.search(words.orEmpty(), wishes(), limit = 12, exclude = rejected, sites = setOfNotNull(site), seed = draw())
             else if (words.isNullOrBlank() && site == null) c.candidateFinder.forCourse(coursesOf(course), 12, wishes(), rejected, draw(), if (course == Course.DESSERT) "dessert" else "entrée")
             else c.candidateFinder.search(words.orEmpty(), wishes(), limit = 12, exclude = rejected, sites = setOfNotNull(site), seed = draw(), courses = coursesOf(course))
@@ -789,20 +791,21 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
         val list = c.draft.get()
         when (command) {
             is MenuCommand.AddGuests -> {
-                val d = list[command.dish]
+                val d = list.getOrNull(command.dish) ?: return
                 val p = Portions(d.portions.adults + command.adults, d.portions.children + command.children)
                 c.draft.set(list.toMutableList().also { it[command.dish] = d.copy(portions = p) })
                 say("Plat ${command.dish + 1} « ${d.title} » : ${p.label()}")
             }
             is MenuCommand.SetPeople -> {
-                val d = list[command.dish]
+                val d = list.getOrNull(command.dish) ?: return
                 val p = Portions(command.adults, command.children)
                 c.draft.set(list.toMutableList().also { it[command.dish] = d.copy(portions = p) })
                 say("Plat ${command.dish + 1} « ${d.title} » : ${p.label()}")
             }
             is MenuCommand.Remove -> {
+                val removed = list.getOrNull(command.dish) ?: return
                 c.draft.set(list.toMutableList().also { it.removeAt(command.dish) })
-                say("« ${list[command.dish].title} » retiré")
+                say("« ${removed.title} » retiré")
             }
             is MenuCommand.AddDish -> {
                 val next = if (command.course != null) searched(command.words, command.site, course = command.course)
@@ -814,7 +817,7 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
                 }
             }
             is MenuCommand.Replace -> {
-                val old = list[command.dish]
+                val old = list.getOrNull(command.dish) ?: return
                 val words = command.words
                 if (words == null && command.site == null) {
                     swap(command.dish)
@@ -851,7 +854,7 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
         if (available().size >= 4) return
         viewModelScope.launch(Dispatchers.Default) {
             _state.update { it.copy(pickerBusy = true) }
-            val more = runCatching { c.candidateFinder.find(wishes(), round = ++searchRound, exclude = rejected, seed = draw()) }.getOrNull()
+            val more = runCatchingCancellable { c.candidateFinder.find(wishes(), round = ++searchRound, exclude = rejected, seed = draw()) }.getOrNull()
             c.candidates.add(more?.candidates.orEmpty())
             _state.update { s -> s.copy(pickerBusy = false, picker = s.picker?.takeIf { s.pickerCourse == null }?.let { available() } ?: s.picker) }
         }
@@ -863,7 +866,7 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
         _state.update { it.copy(pickerCourse = course, picker = emptyList(), pickerBusy = true) }
         viewModelScope.launch(Dispatchers.Default) {
             val taken = dishes.value.mapNotNull { it.sourceUrl }.toSet() + rejected
-            val found = runCatching {
+            val found = runCatchingCancellable {
                 c.candidateFinder.forCourse(coursesOf(course), 12, wishes(), taken, draw(), if (course == Course.DESSERT) "dessert" else "entrée")
             }.getOrNull().orEmpty().filterNot { blocked(it, dishes.value) }
             _state.update { s -> if (s.pickerCourse != course) s else s.copy(pickerBusy = false, picker = found) }
@@ -882,7 +885,7 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
         }
         viewModelScope.launch(Dispatchers.Default) {
             _state.update { it.copy(pickerBusy = true) }
-            val found = runCatching {
+            val found = runCatchingCancellable {
                 if (course == null) c.candidateFinder.search(words, wishes(), limit = 12, exclude = rejected)
                 else c.candidateFinder.search(words, wishes(), limit = 12, exclude = rejected, courses = coursesOf(course))
             }.getOrNull().orEmpty()
@@ -932,7 +935,7 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
                     val courses = if (course == fr.mescourses.core.catalog.Course.DESSERT) setOf(course)
                     else setOf(course, fr.mescourses.core.catalog.Course.SOUPE, fr.mescourses.core.catalog.Course.SALADE)
                     val taken = dishes.mapNotNull { it.sourceUrl }.toSet() + rejected
-                    val found = runCatching {
+                    val found = runCatchingCancellable {
                         c.candidateFinder.forCourse(courses, 1, wishes, taken, draw(), if (course == fr.mescourses.core.catalog.Course.DESSERT) "dessert" else "entrée")
                     }.getOrNull().orEmpty().firstOrNull()
                     if (found == null) _state.update { it.copy(message = "Pas d'autre recette trouvée.") }
@@ -950,7 +953,7 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
                 val next = pick() ?: run {
                     progress("Recherche d'autres recettes…")
                     val seen = rejected + c.candidates.all().mapNotNull { it.recipe.sourceUrl }
-                    val more = runCatching { c.candidateFinder.find(wishes, round = ++searchRound, exclude = seen, seed = draw()) { progress(it) } }.getOrNull()
+                    val more = runCatchingCancellable { c.candidateFinder.find(wishes, round = ++searchRound, exclude = seen, seed = draw()) { progress(it) } }.getOrNull()
                     c.candidates.add(more?.candidates.orEmpty())
                     pick()
                 }
@@ -1101,13 +1104,17 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
 
     fun changePortions(index: Int, adultsDelta: Int, childrenDelta: Int) = viewModelScope.launch {
         val list = c.draft.get().toMutableList()
+        if (index !in list.indices) return@launch
         val p = list[index].portions
         list[index] = list[index].copy(portions = Portions((p.adults + adultsDelta).coerceAtLeast(0), (p.children + childrenDelta).coerceAtLeast(0)))
         c.draft.set(list)
     }
 
     fun removeDish(index: Int) = viewModelScope.launch {
-        c.draft.set(c.draft.get().toMutableList().also { it.removeAt(index) })
+        val list = c.draft.get().toMutableList()
+        if (index !in list.indices) return@launch
+        list.removeAt(index)
+        c.draft.set(list)
     }
 
     fun clearDraft() = viewModelScope.launch {

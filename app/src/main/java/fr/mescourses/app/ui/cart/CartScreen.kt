@@ -252,7 +252,7 @@ fun CartScreen(
                 }
             }
             if (state.phase != Phase.IDLE) {
-                itemsIndexed(state.lines) { index, line ->
+                itemsIndexed(state.lines, key = { index, line -> "$index-${line.item.name}" }) { index, line ->
                     CartLineCard(
                         line = line,
                         editable = state.phase == Phase.VALIDATION,
@@ -485,7 +485,8 @@ private fun ShoppingChatSheet(onDismiss: () -> Unit) {
     val model by vm.model.collectAsStateWithLifecycle()
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
-    LaunchedEffect(lines.size, lines.lastOrNull()?.text?.length) { if (lines.isNotEmpty()) listState.animateScrollToItem(lines.lastIndex) }
+    val lastLenBucket = (lines.lastOrNull()?.text?.length ?: 0) / 40
+    LaunchedEffect(lines.size, lastLenBucket, busy) { if (lines.isNotEmpty()) listState.animateScrollToItem(lines.lastIndex) }
 
     // Le clavier est géré ici seulement (pas aussi par la feuille), et la liste rétrécit pour laisser voir le champ.
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), contentWindowInsets = { WindowInsets(0) }) {
@@ -501,7 +502,7 @@ private fun ShoppingChatSheet(onDismiss: () -> Unit) {
                 busy -> ChefCard("Le chef réfléchit…", "Il cherche les produits au drive.", Modifier.padding(top = 8.dp))
             }
             LazyColumn(state = listState, modifier = Modifier.fillMaxWidth().weight(1f, fill = false).heightIn(max = 320.dp).padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(lines) { l ->
+                itemsIndexed(lines, key = { i, _ -> i }) { _, l ->
                     if (l.tool) {
                         Text(l.text, style = MaterialTheme.typography.labelMedium, color = if (l.ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
                     } else {

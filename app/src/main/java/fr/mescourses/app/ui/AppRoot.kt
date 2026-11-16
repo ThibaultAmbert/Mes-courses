@@ -14,6 +14,8 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.runtime.remember
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fr.mescourses.core.shopping.ShoppingListMerger
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -98,7 +100,9 @@ fun AppRoot(sharedUrl: String?, onSharedUrlConsumed: () -> Unit) {
 
     val draftCount by remember { container.draft.observe().map { it.size } }.collectAsStateWithLifecycle(0)
     val remaining by remember {
-        container.shopping.observeAll().map { l -> l.filterNot { it.checked }.map { ShoppingListMerger.key(it.name) }.distinct().size }
+        container.shopping.observeAll()
+            .map { l -> l.filterNot { it.checked }.map { ShoppingListMerger.key(it.name) }.distinct().size }
+            .flowOn(Dispatchers.Default)
     }.collectAsStateWithLifecycle(0)
 
     // Le clavier est géré une seule fois, ici : les écrans n'ajoutent pas leur propre imePadding (sinon la barre du bas

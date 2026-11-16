@@ -21,6 +21,11 @@ import kotlinx.serialization.json.jsonObject
  */
 object LeclercParsers {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
+    private val PRODUCT_ID_RE = Regex("\"iIdProduit\"\\s*:")
+    private val TOTAL_RE = Regex("\"sTotalAPayer\"\\s*:\\s*\"([^\"]+)\"")
+    private val ERROR_RE = Regex("(?i)momentan(?:é|&#233;|e)ment indisponible")
+    private val EXPIRED_RE = Regex("(?i)session a expir|sessionexpiree")
+    private val NOT_FOUND_RE = Regex("(?i)page demand(?:é|&#233;|&eacute;|e)e n.a pas pu|page introuvable")
 
     private fun JsonObject.str(key: String): String? = (this[key] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() && it != "null" }
     private fun JsonObject.num(key: String): Double? = (this[key] as? JsonPrimitive)?.let { it.doubleOrNull ?: it.contentOrNull?.toDoubleOrNull() }
@@ -28,7 +33,7 @@ object LeclercParsers {
     /** Tous les objets produit (avec `iIdProduit`) trouvés dans un texte HTML/JS. */
     fun productRecords(raw: String): List<JsonObject> {
         val out = mutableListOf<JsonObject>()
-        Regex("\"iIdProduit\"\\s*:").findAll(raw).forEach { m ->
+        PRODUCT_ID_RE.findAll(raw).forEach { m ->
             val text = Scrape.enclosingObject(raw, m.range.first) ?: return@forEach
             runCatching { json.parseToJsonElement(text).jsonObject }.getOrNull()?.let(out::add)
         }
@@ -68,11 +73,11 @@ object LeclercParsers {
             val qty = (o.num("iQuantitePanier") ?: o.num("iQtePanier") ?: 0.0).toInt()
             if (qty <= 0) return@mapNotNull null
             val p = product(o)
-            CartLineItem(p.id, p.name, qty, o.num("rTotalAPayer") ?: Scrape.euro(o.str("sTotalAPayer")) ?: p.price?.let { it * qty })
+            CartLineItem(p.id, p.name, qty, o.num("rTotalAPayer") ?: Scrape.euro(o.str("sTotalAPayer")) ?: p.price?.let { it * qty }, imageUrl = p.imageUrl)
         }.distinctBy { it.ean }
         val anchor = html.indexOf(LeclercRoutes.STORE_PAGE_MARKER)
         val scope = if (anchor >= 0) html.substring(anchor, minOf(html.length, anchor + 1500)) else ""
-        val total = Regex("\"sTotalAPayer\"\\s*:\\s*\"([^\"]+)\"").find(scope)?.groupValues?.get(1)?.let(Scrape::euro)
+        val total = TOTAL_RE.find(scope)?.groupValues?.get(1)?.let(Scrape::euro)
             ?: lines.mapNotNull { it.subtotal }.takeIf { it.isNotEmpty() }?.sum()
         return Cart(lines, total, null)
     }
@@ -94,7 +99,7 @@ object LeclercParsers {
                 id.startsWith("Produit") && (el.str("sType") ?: "Produit") == "Produit" -> {
                     val qty = (el.num("iQuantitePanier") ?: 0.0).toInt()
                     val p = product(el)
-                    if (qty > 0) lines += CartLineItem(p.id, p.name, qty, el.num("rTotalAPayer") ?: Scrape.euro(el.str("sTotalAPayer")))
+                    if (qty > 0) lines += CartLineItem(p.id, p.name, qty, el.num("rTotalAPayer") ?: Scrape.euro(el.str("sTotalAPayer")), imageUrl = p.imageUrl)
                 }
             }
         }
@@ -104,9 +109,9 @@ object LeclercParsers {
     /** Est-ce une vraie page de drive ? Sinon : page anti-robot (DataDome) ou « session expirée ». */
     fun isStorePage(html: String) = html.contains(LeclercRoutes.STORE_PAGE_MARKER)
     /** Page d'erreur du site (« Désolé, ce service est momentanément indisponible »), renvoyée avec un statut 200. */
-    fun isErrorPage(html: String) = html.contains("pgeWCSD002_Erreur") || Regex("(?i)momentan(?:é|&#233;|e)ment indisponible").containsMatchIn(html)
-    fun isExpiredPage(html: String) = Regex("(?i)session a expir|sessionexpiree").containsMatchIn(html)
-    fun isNotFoundPage(html: String) = Regex("(?i)page demand(?:é|&#233;|&eacute;|e)e n.a pas pu|page introuvable").containsMatchIn(html)
+    fun isErrorPage(html: String) = html.contains("pgeWCSD002_Erreur") || ERROR_RE.containsMatchIn(html)
+    fun isExpiredPage(html: String) = EXPIRED_RE.containsMatchIn(html)
+    fun isNotFoundPage(html: String) = NOT_FOUND_RE.containsMatchIn(html)
 
     /** Premier lieu proposé par l'autocomplétion : (id Woosmap, code postal, ville). */
     fun parsePlace(body: String): Triple<String, String?, String?>? {

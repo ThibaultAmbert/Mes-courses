@@ -121,6 +121,9 @@ interface RecipeDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(recipe: RecipeEntity): Long
 
+    @Update
+    suspend fun update(recipe: RecipeEntity): Int
+
     @Query("DELETE FROM recipes WHERE id = :id")
     suspend fun delete(id: Long)
 }
@@ -160,8 +163,14 @@ interface ShoppingDao {
     @Update
     suspend fun update(item: ShoppingItemEntity)
 
+    @Query("SELECT * FROM shopping_items WHERE id = :id")
+    suspend fun get(id: Long): ShoppingItemEntity?
+
     @Query("DELETE FROM shopping_items WHERE id = :id")
     suspend fun delete(id: Long)
+
+    @Query("DELETE FROM shopping_items WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<Long>)
 
     @Query("DELETE FROM shopping_items WHERE checked = 1")
     suspend fun clearChecked()

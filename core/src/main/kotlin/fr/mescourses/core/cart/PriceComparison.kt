@@ -1,5 +1,6 @@
 package fr.mescourses.core.cart
 
+import fr.mescourses.core.runCatchingCancellable
 import fr.mescourses.core.model.ShoppingItem
 import fr.mescourses.core.retail.Retailer
 import fr.mescourses.core.shopping.ShoppingListMerger
@@ -45,7 +46,7 @@ object PriceComparison {
                 async {
                     var quote = RetailerQuote(backend.retailer, items.map { CartLine(it) })
                     send(quote)
-                    val problem = runCatching { ready(backend) }.getOrElse { it.message ?: it.toString() }
+                    val problem = runCatchingCancellable { ready(backend) }.getOrElse { it.message ?: it.toString() }
                     if (problem != null) {
                         send(quote.copy(problem = problem, done = true))
                         return@async

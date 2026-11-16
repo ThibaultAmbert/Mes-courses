@@ -57,6 +57,7 @@ class ModelController(private val llm: LlmEngine, private val settings: Settings
     private val inUse = AtomicInteger(0)
     @Volatile private var owner: String? = null
     @Volatile private var loadedPath: String? = null
+    @Volatile private var failedPath: String? = null
 
     /** Conversation du propriétaire actuel ([owner]). */
     @Volatile private var live: Live? = null
@@ -83,7 +84,7 @@ class ModelController(private val llm: LlmEngine, private val settings: Settings
         _status.value = when {
             file == null -> ModelStatus.Absent
             llm.isLoaded() && loadedPath == file.absolutePath -> _status.value.takeIf { it is ModelStatus.Ready } ?: ModelStatus.Sleeping(file.nameWithoutExtension)
-            _status.value is ModelStatus.Failed || _status.value is ModelStatus.Loading -> _status.value
+            (_status.value is ModelStatus.Failed && failedPath == file.absolutePath) || _status.value is ModelStatus.Loading -> _status.value
             else -> ModelStatus.Sleeping(file.nameWithoutExtension)
         }
     }
@@ -97,10 +98,15 @@ class ModelController(private val llm: LlmEngine, private val settings: Settings
             val requestedTokens = settings.current.contextTokens.takeIf { it > 0 } ?: maxTokensFor(file)
             val backend = llm.load(file.absolutePath, settings.current.preferGpu, requestedTokens)
             loadedPath = file.absolutePath
+            failedPath = null
             suspendOwner()
             _status.value = ModelStatus.Ready(backend, file.nameWithoutExtension)
             true
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            _status.value = ModelStatus.Sleeping(file.nameWithoutExtension)
+            throw e
         } catch (e: Exception) {
+            failedPath = file.absolutePath
             _status.value = ModelStatus.Failed(e.message ?: e.toString())
             false
         }
@@ -108,12 +114,23 @@ class ModelController(private val llm: LlmEngine, private val settings: Settings
 
     /** Libère la mémoire si le modèle ne sert pas (appelé par onTrimMemory). */
     fun releaseIfIdle(): Boolean {
-        if (inUse.get() > 0 || generation.isLocked || !llm.isLoaded()) return false
-        suspendOwner()
-        llm.close()
-        loadedPath = null
-        modelFile()?.let { _status.value = ModelStatus.Sleeping(it.nameWithoutExtension) }
-        return true
+        if (inUse.get() > 0 || !mutex.tryLock()) return false
+        try {
+            if (!generation.tryLock()) return false
+            try {
+                if (inUse.get() > 0 || !llm.isLoaded()) return false
+                suspendOwner()
+                llm.close()
+                loadedPath = null
+                failedPath = null
+                modelFile()?.let { _status.value = ModelStatus.Sleeping(it.nameWithoutExtension) }
+                return true
+            } finally {
+                generation.unlock()
+            }
+        } finally {
+            mutex.unlock()
+        }
     }
 
     /** Met de côté la conversation du propriétaire actuel (avant qu'elle soit fermée) ; plus de propriétaire. */

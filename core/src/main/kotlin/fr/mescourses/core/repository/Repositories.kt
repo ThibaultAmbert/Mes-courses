@@ -23,6 +23,8 @@ interface ShoppingRepository {
     suspend fun add(items: List<ShoppingItem>)
     suspend fun update(item: ShoppingItem)
     suspend fun delete(id: Long)
+    /** Supprime plusieurs articles d'un coup (par défaut une par une). */
+    suspend fun deleteByIds(ids: List<Long>) { ids.forEach { delete(it) } }
     suspend fun clearChecked()
     /** Coche ou décoche d'un coup les articles donnés (par identifiant). */
     suspend fun setChecked(ids: List<Long>, checked: Boolean)

@@ -1,10 +1,12 @@
 package fr.mescourses.core.cart
 
+import fr.mescourses.core.runCatchingCancellable
 import fr.mescourses.core.carrefour.Product
 import fr.mescourses.core.ingredients.IngredientMapper
 import fr.mescourses.core.menu.IngredientOverlap
 import fr.mescourses.core.model.ShoppingItem
 import fr.mescourses.core.shopping.ShoppingListMerger
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -132,7 +134,7 @@ object CartPlanner {
         val remembered = items.associateWith { memory?.get(ShoppingListMerger.key(it.name)) }
         // Les choix habituels peuvent être en rupture : vérification groupée avant de les proposer.
         val availability = remembered.values.filterNotNull().map { it.ean }.takeIf { it.isNotEmpty() }
-            ?.let { runCatching { backend.availability(it) }.getOrDefault(emptyMap()) }.orEmpty()
+            ?.let { runCatchingCancellable { backend.availability(it) }.getOrDefault(emptyMap()) }.orEmpty()
         for (item in items) {
             val known = remembered[item]
             if (known != null && availability[known.ean] != false) {
@@ -178,6 +180,8 @@ object CartPlanner {
                     ?: if (preferOrganic && available.none { it.organic }) "Pas de version bio au drive" else null,
             )
         }
+    } catch (e: CancellationException) {
+        throw e
     } catch (e: Exception) {
         CartLine(item, status = LineStatus.ERREUR, included = false, message = e.message, query = query)
     }
@@ -196,6 +200,8 @@ object CartPlanner {
                 backend.addToCart(product, line.quantity)
                 memory?.remember(ShoppingListMerger.key(line.item.name), product)
                 line.copy(status = LineStatus.AJOUTE, message = null)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 line.copy(status = LineStatus.ERREUR, message = e.message)
             }

@@ -81,8 +81,8 @@ class RetailerWebViewBridge(
     /** Configuration commune aux WebViews des enseignes (invisible et visible). */
     @SuppressLint("SetJavaScriptEnabled")
     fun configure(view: WebView) {
-        // Inspection possible depuis chrome://inspect (usage personnel, pour capturer les routes).
-        WebView.setWebContentsDebuggingEnabled(true)
+        // Inspection possible depuis chrome://inspect uniquement en build debuggable.
+        WebView.setWebContentsDebuggingEnabled(debug)
         view.settings.javaScriptEnabled = true
         view.settings.domStorageEnabled = true
         // Les liens « nouvelle fenêtre » du site s'ouvrent dans la même vue au lieu d'être ignorés.
@@ -195,8 +195,8 @@ class RetailerWebViewBridge(
     suspend fun reload() = load(site.parking())
 
     /** Recharge et attend la fin du chargement (au plus 20 s), pour que la vérification suivante voie les nouveaux cookies. */
-    suspend fun reloadAndWait() {
-        if (webView == null) return
+    suspend fun reloadAndWait() = serial.withLock {
+        if (webView == null) return@withLock
         val page = site.parking()
         coroutineScope {
             val done = async { withTimeoutOrNull(20_000) { pageFinished.first { it.startsWith("http") } } }
@@ -257,6 +257,8 @@ class RetailerWebViewBridge(
                 val response = withTimeout(TIMEOUT_MS) { deferred.await() }
                 record(method, path, response.status, System.currentTimeMillis() - start)
                 response
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 record(method, path, null, System.currentTimeMillis() - start)
                 if (e is CarrefourException) throw e

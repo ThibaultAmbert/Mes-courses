@@ -53,6 +53,8 @@ class CarrefourTools(
                 run(args)
             } catch (e: CarrefourException) {
                 buildJsonObject { put("erreur", e.code); put("message", e.message ?: "") }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 buildJsonObject { put("erreur", "inattendue"); put("message", e.message ?: e.toString()) }
             }

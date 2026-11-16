@@ -77,8 +77,10 @@ import fr.mescourses.core.model.ItemSource
 import fr.mescourses.core.model.ShoppingItem
 import fr.mescourses.core.shopping.Aisle
 import fr.mescourses.core.shopping.ShoppingListMerger
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -120,7 +122,7 @@ class ShoppingViewModel(private val c: AppContainer) : ViewModel() {
                 editUnit = merged.singleOrNull()?.unit,
             )
         }.sortedWith(compareBy({ it.checked }, { it.aisle.ordinal }, { it.label.lowercase() }))
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun add(text: String) = viewModelScope.launch {
         text.split('\n', ';', ',').map { it.trim() }.filter { it.isNotEmpty() }
@@ -140,7 +142,7 @@ class ShoppingViewModel(private val c: AppContainer) : ViewModel() {
         c.shopping.setChecked(lines.flatMap { it.sources }.map { it.id }, checked)
     }
 
-    fun delete(line: ShoppingLine) = viewModelScope.launch { line.sources.forEach { c.shopping.delete(it.id) } }
+    fun delete(line: ShoppingLine) = viewModelScope.launch { c.shopping.deleteByIds(line.sources.map { it.id }) }
 
     /**
      * Modifie un article : un seul article d'origine est mis à jour ; une ligne fusionnée (plusieurs recettes)
@@ -152,7 +154,7 @@ class ShoppingViewModel(private val c: AppContainer) : ViewModel() {
         if (single != null) {
             c.shopping.update(single.copy(name = clean, quantity = quantity, unit = unit))
         } else {
-            line.sources.forEach { c.shopping.delete(it.id) }
+            c.shopping.deleteByIds(line.sources.map { it.id })
             c.shopping.add(
                 listOf(
                     ShoppingItem(
@@ -182,13 +184,16 @@ class ShoppingViewModel(private val c: AppContainer) : ViewModel() {
         c.undoBar.push(message) { c.shopping.setChecked(ids, false) }
     }
 
+    /** Libellés configurés du placard (clé de mémorisation pour l'UI). */
+    fun currentPantry(): List<String> = c.settings.current.pantryList()
+
     /** Le libellé est-il un produit du placard (Réglages) ? */
     fun isPantry(name: String): Boolean = fr.mescourses.core.shopping.Pantry.isStaple(name, c.settings.current.pantryList())
 
     /** Retire de la liste les produits du placard non pris (ajoutés avant le filtre) ; renvoie ce qui a été retiré. */
     suspend fun removePantry(): List<ShoppingItem> {
         val removed = c.shopping.all().filter { !it.checked && isPantry(it.name) }
-        removed.forEach { c.shopping.delete(it.id) }
+        c.shopping.deleteByIds(removed.map { it.id })
         return removed
     }
 
@@ -208,7 +213,12 @@ fun ShoppingListScreen(onOpenSettings: () -> Unit, onSendToCart: () -> Unit) {
     var editing by remember { mutableStateOf<ShoppingLine?>(null) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    val done = lines.count { it.checked }
+    val open = remember(lines) { lines.filterNot { it.checked } }
+    val taken = remember(lines) { lines.filter { it.checked } }
+    val grouped = remember(open) { open.groupBy { it.aisle }.toSortedMap(compareBy { it.ordinal }) }
+    val pantry = vm.currentPantry()
+    val pantryCount = remember(open, pantry) { open.count { vm.isPantry(it.label) } }
+    val done = taken.size
     val progress by animateFloatAsState(if (lines.isEmpty()) 0f else done.toFloat() / lines.size, label = "progress")
 
     fun undoable(message: String, removed: List<ShoppingItem>) = vm.offerRestore(message, removed)
@@ -225,15 +235,13 @@ fun ShoppingListScreen(onOpenSettings: () -> Unit, onSendToCart: () -> Unit) {
         onOpenSettings = onOpenSettings,
         snackbar = snackbar,
         actions = {
-            if (lines.any { !it.checked }) IconButton(onClick = { vm.sendToCart(); onSendToCart() }) {
+            if (open.isNotEmpty()) IconButton(onClick = { vm.sendToCart(); onSendToCart() }) {
                 Icon(Icons.Filled.ShoppingCart, "Envoyer au panier")
             }
             // Produits du placard restés dans la liste (ajoutés avant le filtre, ou à la main).
-            val pantryCount = lines.count { !it.checked && vm.isPantry(it.label) }
             if (pantryCount > 0) IconButton(onClick = { scope.launch { undoable("$pantryCount produit(s) du placard retiré(s)", vm.removePantry()) } }) {
                 Icon(Icons.Filled.Kitchen, "Retirer les produits du placard")
             }
-            val open = lines.filterNot { it.checked }
             if (open.isNotEmpty()) IconButton(onClick = { checkAll(open, "${open.size} article(s) coché(s)") }) {
                 Icon(Icons.Filled.DoneAll, "Tout cocher")
             }
@@ -281,8 +289,7 @@ fun ShoppingListScreen(onOpenSettings: () -> Unit, onSendToCart: () -> Unit) {
                     LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(50)))
                 }
             }
-            val todo = lines.filterNot { it.checked }
-            todo.groupBy { it.aisle }.toSortedMap(compareBy { it.ordinal }).forEach { (aisle, group) ->
+            grouped.forEach { (aisle, group) ->
                 item(key = "h-${aisle.name}") {
                     Row(Modifier.padding(top = 6.dp).animateItem(), verticalAlignment = Alignment.CenterVertically) {
                         Text(
@@ -305,7 +312,6 @@ fun ShoppingListScreen(onOpenSettings: () -> Unit, onSendToCart: () -> Unit) {
                     ShoppingRow(line, onToggle = { vm.toggle(line) }, onEdit = { editing = line }, modifier = Modifier.animateItem())
                 }
             }
-            val taken = lines.filter { it.checked }
             if (taken.isNotEmpty()) {
                 item(key = "h-done") {
                     Text(

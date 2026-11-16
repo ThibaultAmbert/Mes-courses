@@ -1,10 +1,11 @@
 package fr.mescourses.core.carrefour
 
+import fr.mescourses.core.runCatchingCancellable
 import fr.mescourses.core.cart.RetailerBackend
 import fr.mescourses.core.retail.Retailer
+import fr.mescourses.core.retail.TtlCache
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
@@ -31,11 +32,10 @@ class CarrefourClient(
 
     override val retailer = Retailer.CARREFOUR
 
-    private data class Cached<T>(val at: Long, val value: T)
     private val cacheTtlMs = 5 * 60 * 1000L
-    private val searchCache = HashMap<String, Cached<List<Product>>>()
-    private val detailCache = HashMap<String, Cached<CarrefourParsers.ProductDetail?>>()
-    private val cacheLock = Mutex()
+    private val searchCache = TtlCache<List<Product>>(cacheTtlMs, maxEntries = 128, now = now)
+    private val detailCache = TtlCache<CarrefourParsers.ProductDetail?>(cacheTtlMs, maxEntries = 128, now = now)
+    private val contextLock = Any()
 
     @Volatile var lastContext: DriveContext? = null
         private set
@@ -48,11 +48,14 @@ class CarrefourClient(
     @Volatile private var searchServiceId: String? = null
 
     private fun remember(ctx: DriveContext, source: String) {
-        val previous = lastContext
-        // Le panier connaît aussi facilityServiceId : on le garde si la nouvelle source ne l'a pas.
-        val merged = if (ctx.facilityServiceId == null && previous?.basketServiceId == ctx.basketServiceId) ctx.copy(facilityServiceId = previous.facilityServiceId) else ctx
-        lastContext = merged
-        contextSource = source
+        val (previous, merged) = synchronized(contextLock) {
+            val prev = lastContext
+            // Le panier connaît aussi facilityServiceId : on le garde si la nouvelle source ne l'a pas.
+            val m = if (ctx.facilityServiceId == null && prev?.basketServiceId == ctx.basketServiceId) ctx.copy(facilityServiceId = prev.facilityServiceId) else ctx
+            lastContext = m
+            contextSource = source
+            prev to m
+        }
         if (merged != previous) onContext(merged, source)
     }
 
@@ -63,6 +66,8 @@ class CarrefourClient(
         repeat(2) { attempt ->
             val r = try {
                 transport.request(method, path, headers, body)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: CarrefourException) {
                 throw e
             } catch (e: Exception) {
@@ -97,7 +102,7 @@ class CarrefourClient(
      */
     override suspend fun sessionProbe(): Cart? {
         call("GET", CarrefourRoutes.SESSION_PROBE)
-        return runCatching { cart() }.getOrNull()
+        return runCatchingCancellable { cart() }.getOrNull()
     }
 
     // ---------- Recherche ----------
@@ -107,21 +112,21 @@ class CarrefourClient(
 
     override suspend fun searchWithUnavailable(query: String, limit: Int): List<Product> {
         val key = query.trim().lowercase()
-        cacheLock.withLock { searchCache[key]?.takeIf { now() - it.at < cacheTtlMs }?.let { return it.value.take(limit) } }
+        searchCache.get(key)?.let { return it.value.take(limit) }
         val all = CarrefourParsers.parseSearch(call("GET", CarrefourRoutes.search(query)).body)
         all.firstNotNullOfOrNull { it.offerServiceId }?.let { searchServiceId = it }
-        cacheLock.withLock { searchCache[key] = Cached(now(), all) }
+        searchCache.put(key, all)
         return all.take(limit)
     }
 
     suspend fun productDetail(ean: String): CarrefourParsers.ProductDetail? {
-        cacheLock.withLock { detailCache[ean]?.takeIf { now() - it.at < cacheTtlMs }?.let { return it.value } }
+        detailCache.get(ean)?.let { return it.value }
         val body = buildJsonObject {
             putJsonArray("gtins") { add(JsonPrimitive(ean)) }
             (lastContext ?: savedContext())?.facilityServiceId?.let { put("facilityServiceId", it) }
         }.toString()
         val detail = CarrefourParsers.parseProductDetail(call("POST", CarrefourRoutes.PRODUCTS_BY_GTINS, body).body)
-        cacheLock.withLock { detailCache[ean] = Cached(now(), detail) }
+        detailCache.put(ean, detail)
         return detail
     }
 
@@ -147,11 +152,11 @@ class CarrefourClient(
      */
     private suspend fun context(ean: String? = null): DriveContext {
         lastContext?.let { return it }
-        runCatching { cart() }.getOrElse { if (it is CarrefourException.SessionExpired || it is CarrefourException.ChallengeRequired) throw it }
+        runCatchingCancellable { cart() }.getOrElse { if (it is CarrefourException.SessionExpired || it is CarrefourException.ChallengeRequired) throw it }
         lastContext?.let { return it }
         savedContext()?.let { remember(it, "enregistré"); return it }
         val fromSearch = searchServiceId ?: ean?.let {
-            runCatching { search(it, 5) }.getOrElse { e -> if (e is CarrefourException.SessionExpired || e is CarrefourException.ChallengeRequired) throw e }
+            runCatchingCancellable { search(it, 5) }.getOrElse { e -> if (e is CarrefourException.SessionExpired || e is CarrefourException.ChallengeRequired) throw e }
             searchServiceId
         }
         fromSearch?.let { id ->
@@ -163,8 +168,8 @@ class CarrefourClient(
     }
 
     /** Pour l'écran de debug : cherche le contexte sans rien écrire. */
-    suspend fun discoverContext(): DriveContext? = runCatching { context(null) }.getOrNull()
-        ?: runCatching { search("lait", 3); context(null) }.getOrNull()
+    suspend fun discoverContext(): DriveContext? = runCatchingCancellable { context(null) }.getOrNull()
+        ?: runCatchingCancellable { search("lait", 3); context(null) }.getOrNull()
 
     override suspend fun setQuantity(ean: String, quantity: Int): Cart {
         require(quantity in 0..50) { "Quantité invalide : $quantity" }
@@ -186,9 +191,13 @@ class CarrefourClient(
 
     /** Oublie le drive connu (après un changement de drive). */
     override fun forgetContext() {
-        lastContext = null
-        contextSource = null
-        searchServiceId = null
+        synchronized(contextLock) {
+            lastContext = null
+            contextSource = null
+            searchServiceId = null
+        }
+        searchCache.clear()
+        detailCache.clear()
     }
 
     override suspend fun addToCart(product: Product, quantity: Int): Cart {
@@ -213,10 +222,10 @@ class CarrefourClient(
 
     /** Articles du panier indisponibles : signalés par le panier lui-même, et par la simulation du drive. */
     override suspend fun unavailableInCart(): List<String> {
-        val fromCart = runCatching { cart().lines.filterNot { it.available }.map { it.ean } }.getOrDefault(emptyList())
+        val fromCart = runCatchingCancellable { cart().lines.filterNot { it.available }.map { it.ean } }.getOrDefault(emptyList())
         val ref = storeRef()?.takeIf { it.isNotBlank() }
             ?: (lastContext ?: savedContext())?.basketServiceId?.substringBefore('-')
-        val fromSimulation = ref?.let { r -> runCatching { CarrefourParsers.parseSimulation(call("GET", CarrefourRoutes.cartSimulate(r)).body) }.getOrDefault(emptyList()) }.orEmpty()
+        val fromSimulation = ref?.let { r -> runCatchingCancellable { CarrefourParsers.parseSimulation(call("GET", CarrefourRoutes.cartSimulate(r)).body) }.getOrDefault(emptyList()) }.orEmpty()
         return (fromCart + fromSimulation).distinct()
     }
 
