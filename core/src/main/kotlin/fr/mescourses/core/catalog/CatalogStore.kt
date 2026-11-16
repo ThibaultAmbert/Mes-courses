@@ -7,6 +7,9 @@ import fr.mescourses.core.recipes.RecipeHit
 import fr.mescourses.core.recipes.RecipeRating
 import fr.mescourses.core.recipes.RecipeSites
 import fr.mescourses.core.shopping.ShoppingListMerger
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 
 /** Une recherche dans le catalogue local. Tous les critères donnés doivent être remplis. */
@@ -137,7 +140,9 @@ object CatalogRanking {
         // Tirage avec des mots cherchés, ou recherche par vecteur : on lit plus large, pour ne pas manquer les recettes
         // qui ont les mots dans leur titre.
         val read = if ((seed != null && query.words.isNotEmpty()) || query.vector != null) perSite * 3 else perSite
-        val lists = siteIds.sorted().map { id -> store.search(query.copy(sites = setOf(id), limit = read, seed = seed)) }
+        val lists = coroutineScope {
+            siteIds.sorted().map { id -> async { store.search(query.copy(sites = setOf(id), limit = read, seed = seed)) } }.awaitAll()
+        }
         val random = seed?.let { kotlin.random.Random(it) }
         return rank(lists, query.words, random, perSite, keepOrder = random != null || query.vector != null).take(query.limit)
     }
@@ -233,7 +238,8 @@ class CatalogUpdater(
         var added = 0
         var rejected = 0
         val failed = ArrayList<String>()
-        for (source in sources.filter { only == null || it.siteId in only }) {
+        val selected = sources.filter { only == null || it.siteId in only }
+        for (source in selected) {
             val name = RecipeSites.byId(source.siteId)?.name ?: source.siteId
             onProgress("Nouveautés de $name…")
             val pages = try {
@@ -266,7 +272,10 @@ class CatalogUpdater(
                 }
             }
         }
-        store.setMeta(LAST_UPDATE, now().toString())
+        // Si tous les sites interrogés ont échoué, on ne décale pas la date pour réessayer au prochain passage.
+        if (selected.isNotEmpty() && failed.size < selected.size) {
+            store.setMeta(LAST_UPDATE, now().toString())
+        }
         return Report(added, failed, rejected)
     }
 }

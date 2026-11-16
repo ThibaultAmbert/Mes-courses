@@ -1,6 +1,7 @@
 package fr.mescourses.app.ui.cart
 
 import fr.mescourses.core.carrefour.Product
+import fr.mescourses.core.runCatchingCancellable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import fr.mescourses.app.AppContainer
@@ -136,14 +137,17 @@ class CartViewModel(private val c: AppContainer) : ViewModel() {
             var i = 0
             CartPlanner.propose(c.backend(r), list, c.settings.current.preferOrganic, c.productMemory(r), queries = c.settings.current.queryMap()).collect { line ->
                 val index = i++
-                _state.update { s -> s.copy(lines = s.lines.toMutableList().also { it[index] = line }) }
+                updateLine(index) { line }
             }
             _state.update { it.copy(phase = Phase.VALIDATION) }
         }
     }
 
     fun updateLine(index: Int, transform: (CartLine) -> CartLine) =
-        _state.update { s -> s.copy(lines = s.lines.toMutableList().also { it[index] = transform(it[index]) }) }
+        _state.update { s ->
+            if (index !in s.lines.indices) s
+            else s.copy(lines = s.lines.toMutableList().also { it[index] = transform(it[index]) })
+        }
 
     /** Pour un produit repris de la mémoire : chercher d'autres choix. */
     fun moreChoices(index: Int) = viewModelScope.launch {
@@ -200,6 +204,8 @@ class CartViewModel(private val c: AppContainer) : ViewModel() {
                 val failures = _state.value.lines.count { it.status == LineStatus.ERREUR }
                 _state.update { it.copy(phase = Phase.TERMINE, error = if (failures > 0) "$failures article(s) en erreur" else null) }
                 loadInfo()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 fail(e)
                 _state.update { it.copy(phase = Phase.VALIDATION) }
@@ -213,10 +219,12 @@ class CartViewModel(private val c: AppContainer) : ViewModel() {
         _state.update { it.copy(loadingInfo = true) }
         try {
             val cart = c.backend(r).cart()
-            val slots = runCatching { c.backend(r).timeslots(5) }.getOrNull()
+            val slots = runCatchingCancellable { c.backend(r).timeslots(5) }.getOrNull()
             _state.update { it.copy(cart = cart, slots = slots) }
             // Le drive signale-t-il des articles à remplacer ?
             checkUnavailable()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             fail(e)
         } finally {
@@ -254,7 +262,7 @@ class CartViewModel(private val c: AppContainer) : ViewModel() {
         productSheet.value = ProductSheet.Loading(p)
         viewModelScope.launch {
             // Fiche détaillée (composition, allergènes) : Carrefour seulement ; ailleurs, les infos de la recherche.
-            val detail = runCatching { (c.backend() as? CarrefourClient)?.productDetail(p.ean) }.getOrNull()
+            val detail = runCatchingCancellable { (c.backend() as? CarrefourClient)?.productDetail(p.ean) }.getOrNull()
             // Garde les infos de la recherche (prix au drive) et complète avec la fiche.
             if (productSheet.value is ProductSheet.Loading) productSheet.value = ProductSheet.Loaded(p, detail)
         }
@@ -266,18 +274,18 @@ class CartViewModel(private val c: AppContainer) : ViewModel() {
 
     /** Demande au drive les articles du panier qu'il ne pourra pas servir, et cherche des remplaçants. */
     fun checkUnavailable() = viewModelScope.launch {
-        val cart = _state.value.cart ?: runCatching { c.backend().cart() }.getOrNull()
+        val cart = _state.value.cart ?: runCatchingCancellable { c.backend().cart() }.getOrNull()
         // Panier vidé (sur le site ou ailleurs) : la simulation du drive peut garder d'anciens articles, on les ignore.
         val inCartEans = cart?.lines.orEmpty().filter { it.quantity > 0 }.map { it.ean }.toSet()
         val eans = if (inCartEans.isEmpty()) emptyList()
-        else runCatching { c.backend().unavailableInCart() }.getOrDefault(emptyList()).filter { it in inCartEans }
+        else runCatchingCancellable { c.backend().unavailableInCart() }.getOrDefault(emptyList()).filter { it in inCartEans }
         if (eans.isEmpty()) { _state.update { it.copy(toReplace = emptyList()) }; return@launch }
         val replacements = eans.map { ean ->
             val inCart = cart?.lines?.firstOrNull { it.ean == ean }
             val sent = _state.value.lines.firstOrNull { it.product?.ean == ean }
             val name = inCart?.name ?: sent?.product?.name ?: ean
             val query = sent?.item?.let { CartPlanner.queryFor(it, c.settings.current.queryMap()) } ?: name
-            val alternatives = runCatching { c.backend().search(query, 6) }.getOrDefault(emptyList())
+            val alternatives = runCatchingCancellable { c.backend().search(query, 6) }.getOrDefault(emptyList())
                 .filter { it.ean != ean && it.available }.take(3)
             Replacement(ean, name, inCart?.quantity ?: sent?.quantity ?: 1, alternatives)
         }
@@ -292,6 +300,8 @@ class CartViewModel(private val c: AppContainer) : ViewModel() {
             backend.addToCart(product, r.quantity)
             _state.update { s -> s.copy(toReplace = s.toReplace.map { if (it.ean == r.ean) it.copy(done = true) else it }) }
             loadInfo()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             fail(e)
         }
@@ -300,8 +310,8 @@ class CartViewModel(private val c: AppContainer) : ViewModel() {
     /** Coche dans la liste de courses les articles envoyés au panier. */
     fun markSentAsBought() = viewModelScope.launch {
         val sentKeys = _state.value.lines.filter { it.status == LineStatus.AJOUTE }.map { ShoppingListMerger.key(it.item.name) }.toSet()
-        c.shopping.all().filter { !it.checked && ShoppingListMerger.key(it.name) in sentKeys }
-            .forEach { c.shopping.update(it.copy(checked = true)) }
+        val ids = c.shopping.all().filter { !it.checked && ShoppingListMerger.key(it.name) in sentKeys }.map { it.id }
+        if (ids.isNotEmpty()) c.shopping.setChecked(ids, true)
         _state.update { CartState(retailer = c.activeRetailer.value) }
     }
 
@@ -452,10 +462,10 @@ class ShoppingChatViewModel(private val c: AppContainer) : ViewModel() {
     private fun systemTokens(system: String, tools: List<AgentTool>): Int =
         TokenEstimate.text(system) + TokenEstimate.tools(tools.map { it.openApiJson() })
 
-    private suspend fun cartSummary(): String? = runCatching {
+    private suspend fun cartSummary(): String? = runCatchingCancellable {
         val cart = c.backend().cart()
         val active = cart.lines.filter { it.quantity > 0 }
-        if (active.isEmpty()) return@runCatching Cart(emptyList(), cart.total, cart.context).compact().toString()
+        if (active.isEmpty()) return@runCatchingCancellable Cart(emptyList(), cart.total, cart.context).compact().toString()
         var count = active.size
         var json = Cart(active, cart.total, cart.context).compact().toString()
         while (json.length > MAX_CART_SUMMARY_CHARS && count > 1) {

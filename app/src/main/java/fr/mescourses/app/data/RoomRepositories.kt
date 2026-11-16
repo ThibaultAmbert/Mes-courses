@@ -84,7 +84,7 @@ class RoomRecipeRepository(private val dao: RecipeDao) : RecipeRepository {
 
     override suspend fun save(recipe: Recipe): Long = withContext(Dispatchers.IO) {
         val entity = recipe.toEntity()
-        if (recipe.id == 0L) dao.upsert(entity) else { dao.upsert(entity); recipe.id }
+        if (recipe.id == 0L) dao.upsert(entity) else if (dao.update(entity) > 0) recipe.id else dao.upsert(entity)
     }
 
     override suspend fun delete(id: Long) = withContext(Dispatchers.IO) { dao.delete(id) }
@@ -100,12 +100,12 @@ private fun String?.toCourse(): fr.mescourses.core.catalog.Course? =
     this?.let { n -> fr.mescourses.core.catalog.Course.entries.firstOrNull { it.name == n } }
 
 class RoomMealPlanRepository(private val dao: MealDao) : MealPlanRepository {
-    override fun observeAll(): Flow<List<PlannedMeal>> = dao.observeAll().map { l -> l.map { it.toModel() } }
-    override suspend fun all() = dao.all().map { it.toModel() }
-    override suspend fun add(meal: PlannedMeal): Long = dao.insert(meal.copy(id = 0).toEntity())
-    override suspend fun update(meal: PlannedMeal) = dao.update(meal.toEntity())
-    override suspend fun delete(id: Long) = dao.delete(id)
-    override suspend fun clear() = dao.clear()
+    override fun observeAll(): Flow<List<PlannedMeal>> = dao.observeAll().map { l -> l.map { it.toModel() } }.flowOn(Dispatchers.IO)
+    override suspend fun all() = withContext(Dispatchers.IO) { dao.all().map { it.toModel() } }
+    override suspend fun add(meal: PlannedMeal): Long = withContext(Dispatchers.IO) { dao.insert(meal.copy(id = 0).toEntity()) }
+    override suspend fun update(meal: PlannedMeal) = withContext(Dispatchers.IO) { dao.update(meal.toEntity()) }
+    override suspend fun delete(id: Long) = withContext(Dispatchers.IO) { dao.delete(id) }
+    override suspend fun clear() = withContext(Dispatchers.IO) { dao.clear() }
 }
 
 class RoomMenuDraftRepository(private val dao: MenuDraftDao) : MenuDraftRepository {
@@ -158,18 +158,19 @@ private fun ShoppingItem.toEntity() = ShoppingItemEntity(
 )
 
 class RoomShoppingRepository(private val dao: ShoppingDao) : ShoppingRepository {
-    override fun observeAll(): Flow<List<ShoppingItem>> = dao.observeAll().map { l -> l.map { it.toModel() } }
-    override suspend fun all() = dao.all().map { it.toModel() }
-    override suspend fun add(items: List<ShoppingItem>) = dao.insertAll(items.map { it.copy(id = 0).toEntity() })
-    override suspend fun update(item: ShoppingItem) {
+    override fun observeAll(): Flow<List<ShoppingItem>> = dao.observeAll().map { l -> l.map { it.toModel() } }.flowOn(Dispatchers.IO)
+    override suspend fun all() = withContext(Dispatchers.IO) { dao.all().map { it.toModel() } }
+    override suspend fun add(items: List<ShoppingItem>) = withContext(Dispatchers.IO) { dao.insertAll(items.map { it.copy(id = 0).toEntity() }) }
+    override suspend fun update(item: ShoppingItem) = withContext(Dispatchers.IO) {
         // conserve la date de création (ordre d'affichage)
-        val existing = dao.all().firstOrNull { it.id == item.id }
+        val existing = dao.get(item.id)
         dao.update(item.toEntity().copy(createdAt = existing?.createdAt ?: System.currentTimeMillis()))
     }
-    override suspend fun delete(id: Long) = dao.delete(id)
-    override suspend fun clearChecked() = dao.clearChecked()
+    override suspend fun delete(id: Long) = withContext(Dispatchers.IO) { dao.delete(id) }
     // Par paquets : SQLite limite le nombre de paramètres d'une requête.
-    override suspend fun setChecked(ids: List<Long>, checked: Boolean) = ids.chunked(500).forEach { dao.setChecked(it, checked) }
+    override suspend fun deleteByIds(ids: List<Long>) = withContext(Dispatchers.IO) { ids.chunked(500).forEach { dao.deleteByIds(it) } }
+    override suspend fun clearChecked() = withContext(Dispatchers.IO) { dao.clearChecked() }
+    override suspend fun setChecked(ids: List<Long>, checked: Boolean) = withContext(Dispatchers.IO) { ids.chunked(500).forEach { dao.setChecked(it, checked) } }
 }
 
 /** Mémoire des choix produit (présélection lors des envois suivants au panier). */

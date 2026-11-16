@@ -67,13 +67,16 @@ class WebViewPageFetcher(private val appContext: Context) : PageFetcher {
         }
     }
 
-    private suspend fun readHtml(view: WebView): String = withContext(Dispatchers.Main) {
-        suspendCancellableCoroutine { cont ->
-            view.evaluateJavascript("document.documentElement.outerHTML") { raw ->
-                val html = runCatching { Json.decodeFromString(String.serializer(), raw) }.getOrDefault("")
-                if (cont.isActive) cont.resume(html)
+    private suspend fun readHtml(view: WebView): String {
+        val raw = withContext(Dispatchers.Main) {
+            suspendCancellableCoroutine<String?> { cont ->
+                view.evaluateJavascript("document.documentElement.outerHTML") { value ->
+                    if (cont.isActive) cont.resume(value)
+                }
             }
-        }
+        } ?: return ""
+        if (raw == "null") return ""
+        return runCatching { Json.decodeFromString(String.serializer(), raw) }.getOrDefault("")
     }
 
     private fun isChallenge(html: String): Boolean =

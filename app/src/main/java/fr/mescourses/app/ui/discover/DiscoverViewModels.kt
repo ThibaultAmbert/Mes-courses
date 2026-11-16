@@ -30,7 +30,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -38,9 +40,15 @@ import java.time.LocalDate
 
 /** Recettes du livre indexées par adresse d'origine, et ajout aux favoris sans doublon. */
 class Favorites(private val c: AppContainer, scope: kotlinx.coroutines.CoroutineScope) {
+    @Volatile
+    var loaded: Boolean = false
+        private set
+
     /** Adresse normalisée → recette du livre (toutes listes confondues). */
     val byUrl: StateFlow<Map<String, Recipe>> = c.recipes.observeAll()
         .map { list -> list.filter { it.sourceUrl != null }.associateBy { RecipeSites.normalize(it.sourceUrl!!) } }
+        .onEach { loaded = true }
+        .flowOn(Dispatchers.Default)
         .stateIn(scope, SharingStarted.Eagerly, emptyMap())
 
     fun find(url: String): Recipe? = byUrl.value[RecipeSites.normalize(url)]
@@ -229,6 +237,11 @@ class DiscoverViewModel(private val c: AppContainer) : ViewModel() {
         refresh()
     }
 
+    /** Réinitialise les filtres depuis la feuille sans relancer la recherche immédiatement. */
+    fun clearFiltersQuietly() {
+        filters.value = emptySet()
+    }
+
     fun setSort(s: RecipeSort) {
         val changed = sort.value != s
         sort.value = s
@@ -317,7 +330,11 @@ class DiscoverViewModel(private val c: AppContainer) : ViewModel() {
         r.copy(hits = RecipeFilters.apply(r.hits.filterNot { RecipeSites.normalize(it.url) in favoriteUrls }, filters.value, sort.value))
 
     private suspend fun show(r: RecipeSearchResult) {
-        favoriteUrls = c.recipes.all().filter { it.favorite && it.sourceUrl != null }.map { RecipeSites.normalize(it.sourceUrl!!) }.toSet()
+        favoriteUrls = if (favorites.loaded) {
+            favorites.byUrl.value.filterValues { it.favorite }.keys
+        } else {
+            c.recipes.all().filter { it.favorite && it.sourceUrl != null }.map { RecipeSites.normalize(it.sourceUrl!!) }.toSet()
+        }
         raw = r
         state.value = State.Done(filtered(r))
     }

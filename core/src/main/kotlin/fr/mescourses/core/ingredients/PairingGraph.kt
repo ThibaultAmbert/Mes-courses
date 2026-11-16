@@ -24,17 +24,54 @@ class PairingGraph(pairs: List<Pairing>) {
         }
     }
 
-    /** Moyenne des poids des paires présentes parmi [keys] ; 0.0 s'il y a moins de deux clés ou aucune paire. */
-    fun affinityScore(keys: Collection<String>): Double {
-        val distinct = keys.distinct()
-        if (distinct.size < 2) return 0.0
+    /** Somme des poids et nombre de paires présentes parmi [keys] (sans doublons attendus). */
+    fun pairTotals(keys: List<String>): Pair<Double, Int> {
+        if (keys.size < 2) return 0.0 to 0
         var sum = 0.0
         var count = 0
-        for (i in distinct.indices) for (j in i + 1 until distinct.size) {
-            val w = weights[distinct[i]]?.get(distinct[j]) ?: continue
-            sum += w
-            count++
+        for (i in keys.indices) {
+            val row = weights[keys[i]] ?: continue
+            for (j in i + 1 until keys.size) {
+                val w = row[keys[j]] ?: continue
+                sum += w
+                count++
+            }
         }
+        return sum to count
+    }
+
+    /** Score d'affinité pour `keys union baseKeySet`, en réutilisant [baseTotals] déjà calculé sur [baseKeys]. */
+    fun affinityWithBase(
+        keys: Set<String>,
+        baseKeys: List<String>,
+        baseKeySet: Set<String>,
+        baseTotals: Pair<Double, Int>,
+    ): Double {
+        if (weights.isEmpty()) return 0.0
+        var sum = baseTotals.first
+        var count = baseTotals.second
+        val extra = if (baseKeySet.isEmpty()) keys.toList() else keys.filter { it !in baseKeySet }
+        if (extra.isNotEmpty()) {
+            for (i in extra.indices) {
+                val row = weights[extra[i]] ?: continue
+                for (b in baseKeys) {
+                    val w = row[b] ?: continue
+                    sum += w
+                    count++
+                }
+                for (j in i + 1 until extra.size) {
+                    val w = row[extra[j]] ?: continue
+                    sum += w
+                    count++
+                }
+            }
+        }
+        return if (count == 0) 0.0 else sum / count
+    }
+
+    /** Moyenne des poids des paires présentes parmi [keys] ; 0.0 s'il y a moins de deux clés ou aucune paire. */
+    fun affinityScore(keys: Collection<String>): Double {
+        val (sum, count) = pairTotals(keys.distinct())
         return if (count == 0) 0.0 else sum / count
     }
 

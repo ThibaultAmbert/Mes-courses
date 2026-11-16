@@ -33,6 +33,11 @@ class MenuWorkService : Service() {
             this, NOTIFICATION_ID, notification(this, text),
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC else 0,
         )
+        if (!active) {
+            ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
         if (wakeLock == null) {
             wakeLock = (getSystemService(POWER_SERVICE) as PowerManager)
                 .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MesCourses:chef")
@@ -58,6 +63,17 @@ class MenuWorkService : Service() {
         @Volatile private var active = false
         @Volatile private var lastText: String? = null
         @Volatile private var lastNotifyAt = 0L
+        @Volatile private var cachedOpenIntent: PendingIntent? = null
+
+        private fun openPendingIntent(context: Context): PendingIntent {
+            cachedOpenIntent?.let { return it }
+            val app = context.applicationContext
+            val launch = app.packageManager.getLaunchIntentForPackage(app.packageName)
+                ?: Intent(app, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            return PendingIntent.getActivity(
+                app, 0, launch, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            ).also { cachedOpenIntent = it }
+        }
 
         private fun notification(context: Context, text: String): Notification {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !channelReady) {
@@ -67,20 +83,13 @@ class MenuWorkService : Service() {
                 }
                 channelReady = true
             }
-            val open = PendingIntent.getActivity(
-                context, 0,
-                // Comme l'icône du lanceur : revient sur l'app déjà ouverte au lieu d'en créer une deuxième.
-                context.packageManager.getLaunchIntentForPackage(context.packageName)
-                    ?: Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-            )
             return NotificationCompat.Builder(context, CHANNEL)
                 .setSmallIcon(android.R.drawable.stat_notify_sync)
                 .setContentTitle("Mes courses")
                 .setContentText(text)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
-                .setContentIntent(open)
+                .setContentIntent(openPendingIntent(context))
                 .build()
         }
 
@@ -97,12 +106,15 @@ class MenuWorkService : Service() {
 
         /** Met à jour le texte de la notification (« recette 2/5 »). */
         fun update(context: Context, text: String) {
-            synchronized(notifyLock) {
+            val shouldNotify = synchronized(notifyLock) {
                 if (!active || text == lastText) return
                 val now = SystemClock.elapsedRealtime()
                 if (now - lastNotifyAt < UPDATE_INTERVAL_MS) return
                 lastText = text
                 lastNotifyAt = now
+                true
+            }
+            if (shouldNotify) {
                 runCatching { context.getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification(context, text)) }
             }
         }

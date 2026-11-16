@@ -23,6 +23,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -33,14 +34,16 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -68,7 +71,11 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -76,9 +83,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -86,7 +95,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import fr.mescourses.app.ui.common.appContainer
@@ -100,10 +108,8 @@ import fr.mescourses.core.model.PlannedMeal
 import fr.mescourses.core.recipes.RecipeSites
 import fr.mescourses.core.season.Seasonality
 import kotlinx.coroutines.launch
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.draw.shadow
 import kotlin.math.cos
-import kotlin.math.roundToInt
 import kotlin.math.sin
 
 /** Les trois parties d'un menu, dans l'ordre du repas. */
@@ -172,17 +178,30 @@ private val LOGOS = mapOf(
 
 private val PROGRESS_REGEX = Regex("""\((\d+)/(\d+)\)""")
 
+/** Horloge par image (secondes depuis le lancement), active même si les animations système sont coupées. */
+@Composable
+private fun rememberFrameTime(): State<Float> {
+    val time = remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(Unit) {
+        val start = withFrameNanos { it }
+        while (true) withFrameNanos { now -> time.floatValue = (now - start) / 1_000_000_000f }
+    }
+    return time
+}
+
+private fun easeOutBack(t: Float): Float {
+    val c1 = 1.70158f
+    val c3 = c1 + 1f
+    val x = t - 1f
+    return 1f + c3 * x * x * x + c1 * x * x
+}
+
 @Composable
 internal fun SearchScreen(progress: String?, modelLoading: Boolean, onCancel: () -> Unit) {
-    // Horloge d'affichage : l'animation tourne même quand Android réduit ou coupe les animations.
-    // Le temps n'est lu que dans les lambdas de dessin (graphicsLayer) : à chaque image, seules les
-    // couches bougent, l'écran n'est pas recomposé ni réagencé (sinon saccades quand la recherche et le modèle tournent).
-    val time = remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
-    LaunchedEffect(Unit) {
-        val start = androidx.compose.runtime.withFrameNanos { it }
-        while (true) androidx.compose.runtime.withFrameNanos { now -> time.floatValue = (now - start) / 1_000_000_000f }
-    }
-    val wave = { (1f - cos(time.floatValue * 2f * Math.PI.toFloat() / 2.4f)) / 2f }
+    // Horloge d'affichage : le temps n'est lu que dans les lambdas de dessin (graphicsLayer) :
+    // seules les couches bougent, sans recomposition ni réagencement à chaque image.
+    val time = rememberFrameTime()
+    val wave = { (1f - cos(time.value * 2f * Math.PI.toFloat() / 2.4f)) / 2f }
     // Étapes réelles du moteur, déduites du message de progression.
     val stage = remember(progress) { when {
         progress == null -> 0
@@ -191,73 +210,92 @@ internal fun SearchScreen(progress: String?, modelLoading: Boolean, onCancel: ()
         else -> 1
     } }
     val steps = listOf("Lecture de tes envies", "Recettes de saison sur les sites", "Le chef choisit les plats", "Entrées et desserts")
-    // Avancement : l'étape, et dans l'étape le « (n/m) » que donne le moteur (sites interrogés, recettes lues).
+    // Avancement monotone : interrogations de sites (0.08..0.32), lecture des recettes (0.32..0.62), choix du chef, entrées/desserts.
     val sub = remember(progress) {
         progress?.let { PROGRESS_REGEX.find(it) }
             ?.let { m -> (m.groupValues[1].toFloat() / m.groupValues[2].toFloat().coerceAtLeast(1f)).coerceIn(0f, 1f) } ?: 0f
     }
-    val target = when (stage) { 0 -> 0.03f; 1 -> 0.05f + 0.55f * sub; 2 -> 0.68f; else -> 0.86f + 0.1f * sub }
+    val rawTarget = when {
+        stage == 0 -> 0.03f
+        stage == 1 && progress != null && progress.contains("lecture des recettes", ignoreCase = true) -> 0.32f + 0.30f * sub
+        stage == 1 && progress != null && PROGRESS_REGEX.containsMatchIn(progress) -> 0.08f + 0.24f * sub
+        stage == 1 -> 0.08f
+        stage == 2 -> 0.72f
+        else -> 0.86f + 0.1f * sub
+    }
+    var maxTarget by remember { mutableFloatStateOf(0.03f) }
+    val target = remember(rawTarget) { maxOf(maxTarget, rawTarget).also { maxTarget = it } }
     val fraction by animateFloatAsState(target, tween(500), label = "search")
-    Column(Modifier.fillMaxSize().background(Cuisine.Peach)) {
+    val totalBadges = SITES_OUTER.size + SITES_INNER.size
+    Column(Modifier.fillMaxSize().background(Cuisine.Peach).navigationBarsPadding()) {
         TunnelHeader(current = 2, onClose = onCancel, onDark = true)
-        Box(Modifier.fillMaxWidth().height(320.dp), contentAlignment = Alignment.Center) {
-            Box(Modifier.size(200.dp).graphicsLayer { val p = 1f + 0.18f * wave(); scaleX = p; scaleY = p; alpha = 0.25f }.clip(CircleShape).background(Cuisine.Tomato))
-            Box(Modifier.size(280.dp).border(1.dp, Color(0xFFEBC9AA), CircleShape))
-            Box(Modifier.size(190.dp).border(1.dp, Color(0xFFEBC9AA), CircleShape))
-            SITES_OUTER.forEachIndexed { i, id ->
-                OrbitBadge(id, 140, 52, i, angle = { time.floatValue * 360f / 14f + i * 360f / SITES_OUTER.size }, clock = { time.floatValue })
-            }
-            SITES_INNER.forEachIndexed { i, id ->
-                OrbitBadge(id, 92, 44, i + SITES_OUTER.size, angle = { -time.floatValue * 360f / 22f + i * 120f + 60f }, clock = { time.floatValue })
-            }
-            Box(
-                Modifier.graphicsLayer { translationY = (-6f * wave()).dp.toPx() }.size(104.dp).clip(CircleShape).background(Cuisine.Tomato),
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+            BoxWithConstraints(
+                Modifier.fillMaxWidth().heightIn(max = 356.dp).height(348.dp).clipToBounds(),
                 contentAlignment = Alignment.Center,
-            ) { Icon(Icons.Filled.RestaurantMenu, "Le chef", tint = Color.White, modifier = Modifier.size(50.dp)) }
-        }
-        Column(Modifier.padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Text("Le chef cherche…", style = MaterialTheme.typography.headlineMedium, color = Cuisine.Coffee)
-            Text(progress ?: "Marmiton, Jow, HelloFresh, 750g, Journal des Femmes, Picnic…", style = MaterialTheme.typography.bodyMedium, color = Cuisine.CoffeeMuted)
-            LinearProgressIndicator(
-                progress = { fraction },
-                modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(50)),
-                color = Cuisine.Tomato,
-                trackColor = Color(0xFFF6D7BC),
-                gapSize = 0.dp,
-                drawStopIndicator = {},
-            )
-            AnimatedVisibility(
-                visible = modelLoading,
-                enter = fadeIn(tween(180)) + expandVertically(tween(200)),
-                exit = fadeOut(tween(150)) + shrinkVertically(tween(180)),
-                label = "searchModelLoading",
             ) {
-                ModelLoadingCard()
+                val outerRadius = ((minOf(maxWidth.value, maxHeight.value) / 2f) - 34f).coerceIn(96f, 140f)
+                val innerRadius = (outerRadius * 0.66f).coerceAtLeast(64f)
+                Box(Modifier.size(200.dp).graphicsLayer { val p = 1f + 0.18f * wave(); scaleX = p; scaleY = p; alpha = 0.25f }.clip(CircleShape).background(Cuisine.Tomato))
+                Box(Modifier.size((outerRadius * 2f).dp).border(1.dp, Color(0xFFEBC9AA), CircleShape))
+                Box(Modifier.size((innerRadius * 2f).dp).border(1.dp, Color(0xFFEBC9AA), CircleShape))
+                SITES_OUTER.forEachIndexed { i, id ->
+                    OrbitBadge(id, outerRadius, 52, i, totalBadges, angle = { time.value * 360f / 14f + i * 360f / SITES_OUTER.size }, clock = { time.value })
+                }
+                SITES_INNER.forEachIndexed { i, id ->
+                    OrbitBadge(id, innerRadius, 44, i + SITES_OUTER.size, totalBadges, angle = { -time.value * 360f / 22f + i * 120f + 60f }, clock = { time.value })
+                }
+                Box(
+                    Modifier.graphicsLayer { translationY = (-6f * wave()).dp.toPx() }.size(104.dp).clip(CircleShape).background(Cuisine.Tomato),
+                    contentAlignment = Alignment.Center,
+                ) { Icon(Icons.Filled.RestaurantMenu, "Le chef", tint = Color.White, modifier = Modifier.size(50.dp)) }
             }
-            steps.forEachIndexed { i, label -> StepLine(label, done = i < stage, active = i == stage) }
+            Column(Modifier.padding(horizontal = 24.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text("Le chef cherche…", style = MaterialTheme.typography.headlineMedium, color = Cuisine.Coffee)
+                Text(progress ?: "Marmiton, Jow, HelloFresh, 750g, Journal des Femmes, Picnic…", style = MaterialTheme.typography.bodyMedium, color = Cuisine.CoffeeMuted)
+                LinearProgressIndicator(
+                    progress = { fraction },
+                    modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(50)),
+                    color = Cuisine.Tomato,
+                    trackColor = Color(0xFFF6D7BC),
+                    gapSize = 0.dp,
+                    drawStopIndicator = {},
+                )
+                AnimatedVisibility(
+                    visible = modelLoading,
+                    enter = fadeIn(tween(180)) + expandVertically(tween(200)),
+                    exit = fadeOut(tween(150)) + shrinkVertically(tween(180)),
+                    label = "searchModelLoading",
+                ) {
+                    ModelLoadingCard()
+                }
+                steps.forEachIndexed { i, label -> StepLine(label, done = i < stage, active = i == stage) }
+            }
         }
     }
 }
 
 @Composable
-private fun OrbitBadge(siteId: String, radius: Int, size: Int, order: Int, angle: () -> Float, clock: () -> Float) {
+private fun OrbitBadge(siteId: String, radius: Float, size: Int, order: Int, total: Int, angle: () -> Float, clock: () -> Float) {
     val site = RecipeSites.byId(siteId) ?: return
-    // Arrivée en cascade, puis chaque logo « respire » à son tour pendant qu'il tourne.
-    val appear = remember { Animatable(0f) }
-    LaunchedEffect(Unit) {
-        kotlinx.coroutines.delay(order * 140L)
-        appear.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.5f, stiffness = 300f))
-    }
-    // Position, taille et ombre calculées au dessin, sur la couche du logo : rien n'est recomposé ni réagencé à chaque image.
+    // Cascade d'arrivée et respiration douce entièrement pilotées par l'horloge de dessin.
     Box(
         Modifier
             .graphicsLayer {
+                val t = clock()
+                val appearT = ((t - order * 0.14f) / 0.42f).coerceIn(0f, 1f)
+                val appear = when {
+                    appearT <= 0f -> 0f
+                    appearT >= 1f -> 1f
+                    else -> easeOutBack(appearT)
+                }
                 val rad = Math.toRadians(angle().toDouble())
                 val r = radius.dp.toPx()
                 translationX = (cos(rad) * r).toFloat()
                 translationY = (sin(rad) * r).toFloat()
-                val beat = 1f + 0.12f * sin(Math.toRadians((clock() * 360f / 14f * 4 + order * 60).toDouble())).toFloat().coerceAtLeast(0f)
-                val sc = appear.value * beat
+                val phase = Math.toRadians((t * 360.0 / 14.0 * 4.0) + order * (360.0 / total.coerceAtLeast(1)))
+                val beat = 1f + 0.10f * ((1f - cos(phase).toFloat()) / 2f)
+                val sc = appear * beat
                 scaleX = sc; scaleY = sc
                 shadowElevation = 4.dp.toPx(); shape = CircleShape; clip = true
             }
@@ -297,45 +335,56 @@ private fun StepLine(label: String, done: Boolean, active: Boolean) {
 
 @Composable
 internal fun SwipeScreen(dishes: List<MenuDish>, targets: Triple<Int, Int, Int>, onOpen: (MenuDish) -> Unit, onFinish: (Set<String>) -> Unit) {
-    val cards = remember { dishes.sortedBy { it.courseRank } }
+    val cards = remember(dishes) { dishes.sortedBy { it.courseRank } }
     // Gardé quand on ouvre le détail d'une recette puis qu'on revient : le tri reprend où il en était.
     var index by rememberSaveable { mutableIntStateOf(0) }
-    var kept by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
-    var passed by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
     var history by rememberSaveable { mutableStateOf(arrayListOf<Boolean>()) }
+    val safeIndex = index.coerceIn(0, cards.size)
+    var dragX by remember { mutableFloatStateOf(0f) }
+    var dragging by remember { mutableStateOf(false) }
     val offset = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
+    val currentX = { if (dragging) dragX else offset.value }
+
+    fun passedTitles(): Set<String> = history.mapIndexedNotNull { i, kept ->
+        if (!kept) cards.getOrNull(i)?.title else null
+    }.toSet()
+
+    suspend fun commitDecision(keep: Boolean) {
+        val currentIdx = index.coerceIn(0, cards.size)
+        if (currentIdx >= cards.size) return
+        offset.animateTo(if (keep) 1600f else -1600f, tween(220))
+        history = ArrayList(history.take(currentIdx) + keep)
+        index = currentIdx + 1
+        offset.snapTo(0f)
+        if (index >= cards.size) onFinish(passedTitles())
+    }
 
     fun decide(keep: Boolean) {
-        if (index >= cards.size || offset.isRunning) return
-        scope.launch {
-            offset.animateTo(if (keep) 1600f else -1600f, tween(220))
-            val title = cards[index].title
-            if (keep) kept = ArrayList(kept + title) else passed = ArrayList(passed + title)
-            history = ArrayList(history + keep)
-            index++
-            offset.snapTo(0f)
-            if (index >= cards.size) onFinish(passed.toSet())
-        }
+        if (safeIndex >= cards.size || offset.isRunning || dragging) return
+        scope.launch { commitDecision(keep) }
     }
 
     fun undo() {
-        if (history.isEmpty() || offset.isRunning) return
-        val wasKept = history.last()
+        if (history.isEmpty() || offset.isRunning || dragging || safeIndex == 0) return
         history = ArrayList(history.dropLast(1))
-        index--
-        val title = cards[index].title
-        if (wasKept) kept = ArrayList(kept - title) else passed = ArrayList(passed - title)
+        index = safeIndex - 1
     }
 
-    Column(Modifier.fillMaxSize()) {
-        TunnelHeader(current = 2, onClose = { onFinish(passed.toSet()) }) {
-            Text("${(index + 1).coerceAtMost(cards.size)} / ${cards.size}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    val keptCounts = remember(cards, history, safeIndex) {
+        MealGroup.entries.associateWith { g ->
+            history.indices.count { i -> i < safeIndex && history[i] && cards.getOrNull(i)?.let { groupOf(it.course) } == g }
+        }
+    }
+
+    Column(Modifier.fillMaxSize().navigationBarsPadding()) {
+        TunnelHeader(current = 2, onClose = { onFinish(passedTitles()) }) {
+            Text("${(safeIndex + 1).coerceAtMost(cards.size)} / ${cards.size}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             MealGroup.entries.forEach { g ->
                 val target = g.target(targets)
-                val n = kept.count { title -> cards.firstOrNull { it.title == title }?.let { groupOf(it.course) } == g }
+                val n = keptCounts[g] ?: 0
                 val full = target > 0 && n >= target
                 Box(
                     Modifier.weight(1f).height(34.dp).clip(RoundedCornerShape(50))
@@ -351,7 +400,7 @@ internal fun SwipeScreen(dishes: List<MenuDish>, targets: Triple<Int, Int, Int>,
             }
         }
         Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-            cards.getOrNull(index)?.let { dish ->
+            cards.getOrNull(safeIndex)?.let { dish ->
                 Box(Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 18.dp).clip(RoundedCornerShape(30.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh))
                 Box(Modifier.fillMaxSize().padding(start = 8.dp, end = 8.dp, top = 9.dp).clip(RoundedCornerShape(30.dp)).background(MaterialTheme.colorScheme.surfaceContainer))
                 Surface(
@@ -361,24 +410,56 @@ internal fun SwipeScreen(dishes: List<MenuDish>, targets: Triple<Int, Int, Int>,
                     color = MaterialTheme.colorScheme.surfaceContainerLowest,
                     shadowElevation = 6.dp,
                     modifier = Modifier.fillMaxSize()
-                        .offset { IntOffset(offset.value.roundToInt(), 0) }
-                        .graphicsLayer { rotationZ = offset.value / 40f }
-                        .pointerInput(index) {
+                        .graphicsLayer {
+                            val x = currentX()
+                            translationX = x
+                            rotationZ = x / 40f
+                        }
+                        .pointerInput(safeIndex) {
                             detectHorizontalDragGestures(
-                                onDragEnd = {
-                                    when {
-                                        offset.value > 260f -> decide(true)
-                                        offset.value < -260f -> decide(false)
-                                        else -> scope.launch { offset.animateTo(0f) }
+                                onDragStart = {
+                                    if (!offset.isRunning && safeIndex < cards.size) {
+                                        dragX = 0f
+                                        dragging = true
                                     }
                                 },
-                                onDragCancel = { scope.launch { offset.animateTo(0f) } },
+                                onDragEnd = {
+                                    if (!dragging) return@detectHorizontalDragGestures
+                                    val dx = dragX
+                                    scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+                                        try {
+                                            offset.snapTo(dx)
+                                        } finally {
+                                            dragging = false
+                                            dragX = 0f
+                                        }
+                                        when {
+                                            dx > 260f -> commitDecision(true)
+                                            dx < -260f -> commitDecision(false)
+                                            else -> offset.animateTo(0f)
+                                        }
+                                    }
+                                },
+                                onDragCancel = {
+                                    if (!dragging) return@detectHorizontalDragGestures
+                                    val dx = dragX
+                                    scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+                                        try {
+                                            offset.snapTo(dx)
+                                        } finally {
+                                            dragging = false
+                                            dragX = 0f
+                                        }
+                                        offset.animateTo(0f)
+                                    }
+                                },
                             ) { change, amount ->
+                                if (!dragging) return@detectHorizontalDragGestures
                                 change.consume()
-                                scope.launch { offset.snapTo(offset.value + amount) }
+                                dragX += amount
                             }
                         },
-                ) { SwipeCard(dish, offset.value) }
+                ) { SwipeCard(dish, currentX) }
             }
         }
         Row(
@@ -406,7 +487,7 @@ internal fun SwipeScreen(dishes: List<MenuDish>, targets: Triple<Int, Int, Int>,
 }
 
 @Composable
-private fun SwipeCard(dish: MenuDish, dx: Float) {
+private fun SwipeCard(dish: MenuDish, dx: () -> Float) {
     val season = remember(dish) { Seasonality.report(listOf(dish.title) + dish.mainIngredients, java.time.LocalDate.now().month) }
     Column {
         Box(Modifier.fillMaxWidth().weight(1f)) {
@@ -415,8 +496,8 @@ private fun SwipeCard(dish: MenuDish, dx: Float) {
                 Tag(groupOf(dish.course).label.removeSuffix("s"), Cuisine.Coffee, Color.White)
                 dish.totalMinutes?.let { Tag(minutes(it), Color.White, Cuisine.Coffee) }
             }
-            if (dx > 120f) Stamp("JE GARDE", Cuisine.Basil, Modifier.align(Alignment.CenterStart).padding(start = 20.dp), -12f)
-            if (dx < -120f) Stamp("JE PASSE", Color.White, Modifier.align(Alignment.CenterEnd).padding(end = 20.dp), 12f)
+            Stamp("JE GARDE", Cuisine.Basil, Modifier.align(Alignment.CenterStart).padding(start = 20.dp), -12f) { ((dx() - 80f) / 80f).coerceIn(0f, 1f) }
+            Stamp("JE PASSE", Color.White, Modifier.align(Alignment.CenterEnd).padding(end = 20.dp), 12f) { ((-dx() - 80f) / 80f).coerceIn(0f, 1f) }
         }
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(dish.title, style = MaterialTheme.typography.headlineSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -442,12 +523,12 @@ private fun Tag(text: String, background: Color, color: Color) {
 }
 
 @Composable
-private fun Stamp(text: String, background: Color, modifier: Modifier, rotation: Float) {
+private fun Stamp(text: String, background: Color, modifier: Modifier, rotation: Float, alpha: () -> Float) {
     Text(
         text,
         style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
         color = Cuisine.Coffee,
-        modifier = modifier.graphicsLayer { rotationZ = rotation }
+        modifier = modifier.graphicsLayer { rotationZ = rotation; this.alpha = alpha() }
             .clip(RoundedCornerShape(12.dp)).background(background)
             .border(3.dp, Cuisine.Coffee, RoundedCornerShape(12.dp))
             .padding(horizontal = 14.dp, vertical = 6.dp),
@@ -487,6 +568,15 @@ internal fun RecapScreen(
     val target = targets.first + targets.second + targets.third
     val missing = MealGroup.entries.sumOf { g -> (g.target(targets) - groups[g].orEmpty().size).coerceAtLeast(0) }
     var expanded by rememberSaveable { mutableStateOf<String?>(null) }
+    val rowKeys = remember(dishes) {
+        val seen = HashMap<String, Int>()
+        dishes.map { d ->
+            val base = d.sourceUrl ?: d.recipeId?.toString() ?: d.title
+            val n = (seen[base] ?: 0) + 1
+            seen[base] = n
+            "$base#$n"
+        }
+    }
     var confirmRestart by remember { mutableStateOf(false) }
     if (confirmRestart) {
         AlertDialog(
@@ -552,16 +642,18 @@ internal fun RecapScreen(
                                 Text("${list.size} / $goal", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold), color = if (list.size >= goal) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.primary)
                             }
                             list.forEach { (i, dish) ->
-                                val key = "$i-${dish.title}"
-                                RecapRow(
-                                    dish = dish, expanded = expanded == key, enabled = !busy, ready = ready,
-                                    warning = servingsMismatch(servings[dish.title], dish.portions, childFactor),
-                                    onToggle = { expanded = if (expanded == key) null else key },
-                                    onPortions = { a, c -> onPortions(i, a, c) },
-                                    onAnother = { onAnother(i) }, onInvent = { onInvent(i) },
-                                    onOpen = onOpen, onOpenRecipe = onOpenRecipe,
-                                    onRemove = { expanded = null; onRemove(i) },
-                                )
+                                val rowKey = rowKeys[i]
+                                key(rowKey) {
+                                    RecapRow(
+                                        dish = dish, expanded = expanded == rowKey, enabled = !busy, ready = ready,
+                                        warning = servingsMismatch(servings[dish.title], dish.portions, childFactor),
+                                        onToggle = { expanded = if (expanded == rowKey) null else rowKey },
+                                        onPortions = { a, c -> onPortions(i, a, c) },
+                                        onAnother = { onAnother(i) }, onInvent = { onInvent(i) },
+                                        onOpen = onOpen, onOpenRecipe = onOpenRecipe,
+                                        onRemove = { expanded = null; onRemove(i) },
+                                    )
+                                }
                             }
                             repeat(empty) {
                                 EmptySlot(g.missing, enabled = !busy, onChoose = { onChoose(g.course) }, onChef = { onFillSlot(g.course) })
@@ -581,7 +673,7 @@ internal fun RecapScreen(
             }
         }
         Row(
-            Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).padding(start = 8.dp, end = 16.dp, top = 10.dp, bottom = 16.dp),
+            Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).navigationBarsPadding().padding(start = 8.dp, end = 16.dp, top = 10.dp, bottom = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = { confirmRestart = true }, enabled = !busy) { Icon(Icons.Filled.Refresh, "Tout recommencer") }
@@ -715,42 +807,44 @@ internal fun PreparationScreen(v: Validation, dishes: List<MenuDish>, modelLoadi
         "Recettes rangées dans ton livre" to false,
     )
     val activeIndex = steps.indexOfFirst { !it.second }
-    Column(Modifier.fillMaxSize().background(Cuisine.Peach)) {
+    Column(Modifier.fillMaxSize().background(Cuisine.Peach).navigationBarsPadding()) {
         Row(Modifier.fillMaxWidth().statusBarsPadding().padding(start = 76.dp, end = 16.dp, top = 30.dp, bottom = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             repeat(3) { i -> Box(Modifier.weight(1f).height(4.dp).clip(RoundedCornerShape(2.dp)).background(if (i < 2) Cuisine.Coffee else Cuisine.Tomato)) }
         }
-        Box(Modifier.fillMaxWidth().height(300.dp), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator(
-                progress = { frac },
-                modifier = Modifier.size(240.dp),
-                color = Cuisine.Tomato,
-                strokeWidth = 14.dp,
-                trackColor = Color(0xFFF6D7BC),
-                strokeCap = StrokeCap.Round,
-            )
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Row(verticalAlignment = Alignment.Bottom) {
-                    Text("${v.done}", style = MaterialTheme.typography.displayMedium, color = Cuisine.Coffee)
-                    Text("/${v.total}", style = MaterialTheme.typography.headlineSmall, color = Color(0xFF8A6A55), modifier = Modifier.padding(bottom = 6.dp))
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+            Box(Modifier.fillMaxWidth().height(300.dp), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(
+                    progress = { frac },
+                    modifier = Modifier.size(240.dp),
+                    color = Cuisine.Tomato,
+                    strokeWidth = 14.dp,
+                    trackColor = Color(0xFFF6D7BC),
+                    strokeCap = StrokeCap.Round,
+                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Text("${v.done}", style = MaterialTheme.typography.displayMedium, color = Cuisine.Coffee)
+                        Text("/${v.total}", style = MaterialTheme.typography.headlineSmall, color = Color(0xFF8A6A55), modifier = Modifier.padding(bottom = 6.dp))
+                    }
+                    Text("plats préparés", style = MaterialTheme.typography.bodySmall, color = Cuisine.CoffeeMuted)
                 }
-                Text("plats préparés", style = MaterialTheme.typography.bodySmall, color = Cuisine.CoffeeMuted)
             }
-        }
-        Column(Modifier.weight(1f).padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Text("Le chef prépare ta semaine", style = MaterialTheme.typography.headlineSmall, color = Cuisine.Coffee)
-            Text(
-                if (v.current.isNotBlank()) "En cours : ${v.current}. Tu peux quitter, on te prévient à la fin." else "Tu peux quitter l'app, le chef continue.",
-                style = MaterialTheme.typography.bodyMedium, color = Cuisine.CoffeeMuted,
-            )
-            AnimatedVisibility(
-                visible = modelLoading,
-                enter = fadeIn(tween(180)) + expandVertically(tween(200)),
-                exit = fadeOut(tween(150)) + shrinkVertically(tween(180)),
-                label = "prepModelLoading",
-            ) {
-                ModelLoadingCard()
+            Column(Modifier.padding(horizontal = 24.dp).padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text("Le chef prépare ta semaine", style = MaterialTheme.typography.headlineSmall, color = Cuisine.Coffee)
+                Text(
+                    if (v.current.isNotBlank()) "En cours : ${v.current}. Tu peux quitter, on te prévient à la fin." else "Tu peux quitter l'app, le chef continue.",
+                    style = MaterialTheme.typography.bodyMedium, color = Cuisine.CoffeeMuted,
+                )
+                AnimatedVisibility(
+                    visible = modelLoading,
+                    enter = fadeIn(tween(180)) + expandVertically(tween(200)),
+                    exit = fadeOut(tween(150)) + shrinkVertically(tween(180)),
+                    label = "prepModelLoading",
+                ) {
+                    ModelLoadingCard()
+                }
+                steps.forEachIndexed { i, (label, done) -> StepLine(label, done = done, active = i == activeIndex) }
             }
-            steps.forEachIndexed { i, (label, done) -> StepLine(label, done = done, active = i == activeIndex) }
         }
         Surface(
             onClick = onBackground,

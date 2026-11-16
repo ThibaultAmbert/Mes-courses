@@ -39,6 +39,7 @@ class InMemoryShopping : ShoppingRepository {
     override suspend fun add(items: List<ShoppingItem>) { state.value = state.value + items.map { it.copy(id = next++) } }
     override suspend fun update(item: ShoppingItem) { state.value = state.value.map { if (it.id == item.id) item else it } }
     override suspend fun delete(id: Long) { state.value = state.value.filterNot { it.id == id } }
+    override suspend fun deleteByIds(ids: List<Long>) { val set = ids.toSet(); state.value = state.value.filterNot { it.id in set } }
     override suspend fun clearChecked() { state.value = state.value.filterNot { it.checked } }
     override suspend fun setChecked(ids: List<Long>, checked: Boolean) { state.value = state.value.map { if (it.id in ids) it.copy(checked = checked) else it } }
 }

@@ -3,6 +3,7 @@ package fr.mescourses.app.work
 import android.content.Context
 import android.os.Looper
 import fr.mescourses.app.llm.ModelController
+import fr.mescourses.core.runCatchingCancellable
 import fr.mescourses.core.menu.MenuValidator
 import fr.mescourses.core.menu.RecipeStepsWriter
 import fr.mescourses.core.repository.RecipeRepository
@@ -81,7 +82,7 @@ class ChefWork(
         _validation.value = Validation(0, total, "")
         _result.value = null
         validationJob = scope.launch {
-            val result = runCatching {
+            val result = runCatchingCancellable {
                 keepAwake("Le chef prépare la liste de courses…") {
                     validator.validate { done, all, current ->
                         _validation.value = Validation(done, all, current)
@@ -128,7 +129,7 @@ class ChefWork(
                 val job = launch {
                     while (true) {
                         val id = _stepsQueue.value.firstOrNull() ?: break
-                        runCatching { process(id) }
+                        runCatchingCancellable { process(id) }
                         ensureActive()
                         _stepsQueue.update { it - id }
                         if (_stepsQueue.value.isEmpty()) _batchTotal.value = 0
@@ -200,7 +201,7 @@ class ChefWork(
         scope.launch {
             val recipe = recipes.get(id) ?: return@launch
             if (!stepsWriter().needsSteps(recipe) || id in _stepsQueue.value || _writing.value == id) return@launch
-            runCatching { fromSite(recipe) }
+            runCatchingCancellable { fromSite(recipe) }
         }
     }
 

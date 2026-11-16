@@ -354,18 +354,13 @@ class CatalogSync(
                         if (vectors != null) Log.w(TAG, "Lot de ${chunk.size} fiches : ${vectors.size} vecteurs reçus")
                         break
                     }
-                    for (i in chunk.indices) {
-                        ensureActive()
-                        store.setEmbedding(chunk[i].id, vectors[i])
-                        embedded++
-                    }
+                    store.setEmbeddings(chunk.indices.map { i -> chunk[i].id to vectors[i] })
+                    embedded += chunk.size
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Log.w(TAG, "Vectorisation des fiches", e)
-            } finally {
-                if (embedded > 0) store.invalidateVectorIndex()
             }
             embedded
         }

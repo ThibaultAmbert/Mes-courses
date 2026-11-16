@@ -351,10 +351,11 @@ fun RecipeDetailScreen(recipeId: Long, onBack: () -> Unit, onEdit: () -> Unit, o
         },
     ) { padding ->
         if (r == null) return@ScreenScaffold
-        val present = PlateBalance.components(listOf(r.title) + r.ingredients.map { it.name })
+        val ingredientNames = remember(r.id, r.ingredients) { r.ingredients.map { it.name } }
+        val present = remember(r.id, r.title, ingredientNames) { PlateBalance.components(listOf(r.title) + ingredientNames) }
         Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState())) {
             DishArt(
-                r.title, r.ingredients.map { it.name }, r.imageUrl,
+                r.title, ingredientNames, r.imageUrl,
                 Modifier.fillMaxWidth().height(200.dp).padding(horizontal = 16.dp).clip(MaterialTheme.shapes.extraLarge),
                 emojiSize = 84,
             )

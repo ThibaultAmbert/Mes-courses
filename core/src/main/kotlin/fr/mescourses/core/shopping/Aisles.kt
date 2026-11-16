@@ -40,6 +40,12 @@ enum class Aisle(val label: String, val emoji: String) {
             ),
         )
 
+        private val compiledKeywords: List<Pair<String, Aisle>> by lazy {
+            keywords.flatMap { (aisle, kws) ->
+                kws.map { kw -> (" " + ShoppingListMerger.key(kw) + " ") to aisle }
+            }
+        }
+
         /**
          * Le mot-clé trouvé le plus tôt dans le nom décide, le plus long en cas d'égalité :
          * « lait de coco » → épicerie (pas crèmerie), « crème de marrons » → crèmerie… à corriger à la main au besoin.
@@ -48,15 +54,19 @@ enum class Aisle(val label: String, val emoji: String) {
 
         private fun computed(name: String): Aisle {
             val k = " " + ShoppingListMerger.key(name) + " "
-            var best: Triple<Int, Int, Aisle>? = null
-            for ((aisle, kws) in keywords) for (kw in kws) {
-                val w = " " + ShoppingListMerger.key(kw) + " "
+            var bestPos = Int.MAX_VALUE
+            var bestLen = -1
+            var bestAisle = AUTRES
+            for ((w, aisle) in compiledKeywords) {
                 val pos = k.indexOf(w)
                 if (pos < 0) continue
-                val candidate = Triple(pos, -w.length, aisle)
-                if (best == null || compareValuesBy(candidate, best, { it.first }, { it.second }) < 0) best = candidate
+                if (pos < bestPos || (pos == bestPos && w.length > bestLen)) {
+                    bestPos = pos
+                    bestLen = w.length
+                    bestAisle = aisle
+                }
             }
-            return best?.third ?: AUTRES
+            return bestAisle
         }
     }
 }

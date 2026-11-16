@@ -147,23 +147,41 @@ object RecipeFilters {
 
     private fun titleKey(title: String) = " " + ShoppingListMerger.key(title) + " "
 
-    /**
-     * Le titre contient-il l'un des mots, en mot entier (« vin » ne prend pas « vinaigrette ») ? Les deux côtés passent
-     * par la même clé normalisée (sans accents, au singulier), donc « crevettes » trouve « crevette ».
-     */
-    private fun mentions(title: String, words: List<String>): Boolean {
-        val t = titleKey(title)
-        return words.any { w -> ShoppingListMerger.key(w).takeIf { it.isNotEmpty() }?.let { t.contains(" $it ") } == true }
+    private val excludeTokens: Map<RecipeFilter, List<String>> by lazy {
+        RecipeFilter.entries.associateWith { f ->
+            f.exclude.mapNotNull { w -> ShoppingListMerger.key(w).takeIf { it.isNotEmpty() }?.let { " $it " } }
+        }
+    }
+
+    private val requireTokens: Map<RecipeFilter, List<String>> by lazy {
+        RecipeFilter.entries.associateWith { f ->
+            f.require.mapNotNull { w -> ShoppingListMerger.key(w).takeIf { it.isNotEmpty() }?.let { " $it " } }
+        }
+    }
+
+    private val sortedPrincipals: List<RecipeFilter> by lazy {
+        RecipeFilter.entries.filter { it.group == FilterGroup.PRINCIPAL }.sortedBy { if (it == RecipeFilter.VIANDE) 1 else 0 }
+    }
+
+    private val fallbackBadgeGroups: List<Pair<RecipeFilter, List<String>>> by lazy {
+        listOf(
+            RecipeFilter.DESSERT to listOf("gateau", "tarte", "mousse", "crumble", "cake", "fondant", "cookie", "clafoutis", "tiramisu", "brownie", "flan", "creme brulee", "panna cotta", "sorbet", "glace"),
+            RecipeFilter.SOUPE to listOf("soupe", "veloute", "potage", "bouillon", "gaspacho", "minestrone"),
+            RecipeFilter.SALADE to listOf("salade"),
+        ).map { (f, ws) -> f to ws.mapNotNull { w -> ShoppingListMerger.key(w).takeIf { it.isNotEmpty() }?.let { " $it " } } }
     }
 
     /** Garde les recettes compatibles avec les filtres, puis les trie. Durée ou ingrédient inconnus : on garde. */
     fun apply(hits: List<RecipeHit>, filters: Set<RecipeFilter>, sort: RecipeSort = RecipeSort.PERTINENCE): List<RecipeHit> {
+        val exclFilters = filters.filter { excludeTokens[it].orEmpty().isNotEmpty() }
         val principal = filters.filter { it.group == FilterGroup.PRINCIPAL }
         val maxMinutes = filters.mapNotNull { it.maxMinutes }.minOrNull()
         val kept = hits.filter { h ->
-            filters.none { it.exclude.isNotEmpty() && mentions(h.title, it.exclude) } &&
-                (principal.isEmpty() || principal.any { mentions(h.title, it.require) }) &&
-                (maxMinutes == null || h.totalMinutes == null || h.totalMinutes <= maxMinutes)
+            if (maxMinutes != null && h.totalMinutes != null && h.totalMinutes > maxMinutes) return@filter false
+            if (exclFilters.isEmpty() && principal.isEmpty()) return@filter true
+            val t = titleKey(h.title)
+            exclFilters.none { f -> excludeTokens.getValue(f).any { it in t } } &&
+                (principal.isEmpty() || principal.any { f -> requireTokens.getValue(f).any { it in t } })
         }
         return when (sort) {
             RecipeSort.PERTINENCE -> kept
@@ -176,12 +194,10 @@ object RecipeFilters {
     }
 
     /** Pastille de catégorie d'une recette, d'après son titre (ingrédient principal d'abord, puis type). */
-    fun badge(title: String): RecipeFilter? =
+    fun badge(title: String): RecipeFilter? {
+        val t = titleKey(title)
         // Les catégories précises avant « Viande » (« poulet rôti » est de la volaille).
-        RecipeFilter.entries.filter { it.group == FilterGroup.PRINCIPAL }.sortedBy { if (it == RecipeFilter.VIANDE) 1 else 0 }
-            .firstOrNull { mentions(title, it.require) }
-            ?: listOf(RecipeFilter.DESSERT to listOf("gateau", "tarte", "mousse", "crumble", "cake", "fondant", "cookie", "clafoutis", "tiramisu", "brownie", "flan", "creme brulee", "panna cotta", "sorbet", "glace"),
-                RecipeFilter.SOUPE to listOf("soupe", "veloute", "potage", "bouillon", "gaspacho", "minestrone"),
-                RecipeFilter.SALADE to listOf("salade"))
-                .firstOrNull { (_, w) -> mentions(title, w) }?.first
+        return sortedPrincipals.firstOrNull { f -> requireTokens.getValue(f).any { it in t } }
+            ?: fallbackBadgeGroups.firstOrNull { (_, tokens) -> tokens.any { it in t } }?.first
+    }
 }

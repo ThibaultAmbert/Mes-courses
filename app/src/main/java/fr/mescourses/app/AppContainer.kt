@@ -155,7 +155,7 @@ class AppContainer(context: Context) {
         }
     }
     /** Travaux longs du chef (proposition, validation), qui continuent quand on quitte l'app. */
-    val chef = ChefWork(context, appScope, model, recipes, { stepsWriter() }, { url -> runCatching { importer.import(url) }.getOrNull() })
+    val chef = ChefWork(context, appScope, model, recipes, { stepsWriter() }, { url -> fr.mescourses.core.runCatchingCancellable { importer.import(url) }.getOrNull() })
 
     // --- Drives (natifs, via une WebView connectée par enseigne) ---
     private val sites = RetailerSites.create { settings.current }
@@ -378,7 +378,7 @@ class AppContainer(context: Context) {
         webRecipe = { url ->
             val known = candidates.byUrl(url)?.recipe
             known?.takeIf { it.steps.isNotEmpty() }
-                ?: runCatching { importer.import(url) }.getOrNull()
+                ?: fr.mescourses.core.runCatchingCancellable { importer.import(url) }.getOrNull()
                 ?: (known ?: catalog.byUrl(url)?.toRecipe())?.let { it.copy(tags = it.tags + MenuValidator.STEPS_PENDING) }
         },
     )

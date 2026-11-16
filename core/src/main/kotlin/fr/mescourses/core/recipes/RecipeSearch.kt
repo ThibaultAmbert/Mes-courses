@@ -1,5 +1,6 @@
 package fr.mescourses.core.recipes
 
+import fr.mescourses.core.runCatchingCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.json.Json
@@ -198,7 +199,7 @@ class RecipeSearcher(private val fetchers: List<PageFetcher>) {
     suspend fun search(query: String, sites: List<RecipeSite>, perSite: Int = 12): RecipeSearchResult = coroutineScope {
         val jobs = sites.filter { it.searchable }.map { site ->
             site to async {
-                runCatching { searchSite(query, site, perSite) }
+                runCatchingCancellable { searchSite(query, site, perSite) }
             }
         }
         val results = jobs.map { (site, job) -> site to job.await() }
@@ -212,7 +213,7 @@ class RecipeSearcher(private val fetchers: List<PageFetcher>) {
 
     /** Recettes populaires du moment : page « populaires » du site, ou sa page d'accueil. */
     suspend fun popular(sites: List<RecipeSite>, perSite: Int = 12): RecipeSearchResult = coroutineScope {
-        val jobs = sites.map { site -> site to async { runCatching { fetchHits(site.popularPage, site, perSite) } } }
+        val jobs = sites.map { site -> site to async { runCatchingCancellable { fetchHits(site.popularPage, site, perSite) } } }
         val results = jobs.map { (site, job) -> site to job.await() }
         RecipeSearchResult(
             hits = interleave(results.mapNotNull { (_, r) -> r.getOrNull()?.takeIf { it.isNotEmpty() } }),

@@ -325,9 +325,9 @@ class CandidateFinder(
 
     /** Vecteur de [text] ; null sans modèle, s'il n'est pas prêt ou en cas d'erreur. */
     private suspend fun embed(text: String): ByteArray? =
-        embedder?.takeIf { text.isNotBlank() }?.let { e -> runCatching { e.embedQuery(text) }.getOrNull() }
+        embedder?.takeIf { text.isNotBlank() }?.let { e -> fr.mescourses.core.runCatchingCancellable { e.embedQuery(text) }.getOrNull() }
 
-    private suspend fun local(): CatalogStore? = catalog?.takeIf { runCatching { it.count() }.getOrDefault(0) > 0 }
+    private suspend fun local(): CatalogStore? = catalog?.takeIf { fr.mescourses.core.runCatchingCancellable { it.count() }.getOrDefault(0) > 0 }
 
     /** Candidates tirées du catalogue local pour une recherche : aucune lecture de page. */
     private suspend fun fromCatalog(

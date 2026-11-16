@@ -42,6 +42,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -178,9 +179,9 @@ fun MenuScreen(onOpenSettings: () -> Unit, onOpenRecipe: (Long) -> Unit, onOpenS
         else -> Screen.RECAP
     }
 
-    // Retour : on remonte vers l'accueil (la recherche s'arrête avec la croix, pas par erreur).
-    BackHandler(enabled = screen in setOf(Screen.PARAMS, Screen.RECAP, Screen.WEEK)) {
-        if (screen == Screen.RECAP && state.busy) vm.stop() else vm.goHome()
+    // Retour : arrête une recherche en cours, ou remonte vers l'accueil.
+    BackHandler(enabled = screen in setOf(Screen.PARAMS, Screen.SEARCH, Screen.RECAP, Screen.WEEK)) {
+        if (screen == Screen.SEARCH || (screen == Screen.RECAP && state.busy)) vm.stop() else vm.goHome()
     }
 
     Scaffold(
@@ -317,12 +318,16 @@ private fun rememberNotificationPermission(): () -> Unit {
 @Composable
 internal fun TunnelHeader(current: Int, onClose: () -> Unit, back: Boolean = false, onDark: Boolean = false, trailing: @Composable () -> Unit = {}) {
     val ink = if (onDark) Cuisine.Coffee else MaterialTheme.colorScheme.onSurface
+    val btnBg = if (onDark) Color.White else MaterialTheme.colorScheme.surfaceContainerLowest
+    val trackOn = if (onDark) Cuisine.Coffee else MaterialTheme.colorScheme.primary
+    val trackOff = if (onDark) Color(0xFFEBC9AA) else MaterialTheme.colorScheme.outlineVariant
+    val countColor = if (onDark) Cuisine.CoffeeMuted else MaterialTheme.colorScheme.onSurfaceVariant
     Row(
         Modifier.fillMaxWidth().statusBarsPadding().padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Surface(onClick = onClose, shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerLowest, modifier = Modifier.size(44.dp)) {
+        Surface(onClick = onClose, shape = CircleShape, color = btnBg, modifier = Modifier.size(44.dp)) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
                     if (back) Icons.AutoMirrored.Filled.ArrowBack else Icons.Filled.Close,
@@ -336,11 +341,11 @@ internal fun TunnelHeader(current: Int, onClose: () -> Unit, back: Boolean = fal
             repeat(3) { i ->
                 Box(
                     Modifier.weight(1f).height(4.dp).clip(RoundedCornerShape(2.dp))
-                        .background(if (i < current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
+                        .background(if (i < current) trackOn else trackOff),
                 )
             }
         }
-        Text("$current/3", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("$current/3", style = MaterialTheme.typography.labelLarge, color = countColor)
         trailing()
     }
 }
@@ -796,7 +801,8 @@ private fun ChatSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
-    LaunchedEffect(chat.size, chat.lastOrNull()?.text?.length) {
+    val lastLenBucket = (chat.lastOrNull()?.text?.length ?: 0) / 40
+    LaunchedEffect(chat.size, lastLenBucket, busy) {
         if (chat.isNotEmpty()) listState.animateScrollToItem(chat.lastIndex)
     }
     // Le clavier est géré ici seulement (pas aussi par la feuille), et la liste rétrécit pour laisser voir le champ.
@@ -818,7 +824,7 @@ private fun ChatSheet(
                 if (chat.isEmpty()) item {
                     Text("Pas encore de message.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp))
                 }
-                items(chat) { ChatBubble(it) }
+                itemsIndexed(chat, key = { i, _ -> i }) { _, line -> ChatBubble(line) }
             }
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (canUndo) SuggestionChip(onClick = onUndo, enabled = !busy, label = { Text("Annuler la retouche") })

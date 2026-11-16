@@ -207,6 +207,11 @@ interface CatalogDao {
     @Query("UPDATE catalog_recipe SET embedding = :bytes WHERE id = :id")
     fun setEmbedding(id: Long, bytes: ByteArray)
 
+    @Transaction
+    fun setEmbeddings(entries: List<Pair<Long, ByteArray>>) {
+        entries.forEach { (id, bytes) -> setEmbedding(id, bytes) }
+    }
+
     @Query("SELECT id, title, keys FROM catalog_recipe WHERE embedding IS NULL LIMIT :limit")
     fun withoutEmbedding(limit: Int): List<IdTitleKeys>
 
@@ -303,13 +308,16 @@ class RoomCatalogStore(private val dao: CatalogDao) : CatalogStore {
         }
     }
 
-    override suspend fun known(siteId: String): Map<String, String?> =
+    override suspend fun known(siteId: String): Map<String, String?> = withContext(Dispatchers.IO) {
         (dao.emptyPages(siteId) + dao.recipePages(siteId)).associate { it.url to it.lastmod }
+    }
 
-    override suspend fun markEmpty(siteId: String, url: String, lastmod: String?) = dao.markEmpty(CatalogEmptyEntity(url, siteId, lastmod))
-    override suspend fun meta(key: String) = dao.meta(key)
-    override suspend fun setMeta(key: String, value: String) = dao.setMeta(CatalogMetaEntity(key, value))
-    suspend fun deleteMeta(key: String) = dao.deleteMeta(key)
+    override suspend fun markEmpty(siteId: String, url: String, lastmod: String?) = withContext(Dispatchers.IO) {
+        dao.markEmpty(CatalogEmptyEntity(url, siteId, lastmod))
+    }
+    override suspend fun meta(key: String) = withContext(Dispatchers.IO) { dao.meta(key) }
+    override suspend fun setMeta(key: String, value: String) = withContext(Dispatchers.IO) { dao.setMeta(CatalogMetaEntity(key, value)) }
+    suspend fun deleteMeta(key: String) = withContext(Dispatchers.IO) { dao.deleteMeta(key) }
 
     /** Nombre de fiches qui ont un vecteur sémantique. */
     suspend fun countWithEmbedding(): Int = withContext(Dispatchers.IO) { dao.countWithEmbedding() }
@@ -328,11 +336,21 @@ class RoomCatalogStore(private val dao: CatalogDao) : CatalogStore {
         }
     }
 
+    /** Enregistre un lot de vecteurs en une transaction et invalide l'index une seule fois. */
+    suspend fun setEmbeddings(entries: List<Pair<Long, ByteArray>>) = withContext(Dispatchers.IO) {
+        if (entries.isEmpty()) return@withContext
+        try {
+            dao.setEmbeddings(entries)
+        } finally {
+            vectorCache.invalidate()
+        }
+    }
+
     /** Invalide l'index vectoriel en mémoire. */
     fun invalidateVectorIndex() = vectorCache.invalidate()
 
     /** Supprime la base d'un site. */
-    suspend fun deleteSite(siteId: String) {
+    suspend fun deleteSite(siteId: String) = withContext(Dispatchers.IO) {
         try {
             dao.deleteSite(siteId)
             dao.deleteEmptySite(siteId)
@@ -345,15 +363,15 @@ class RoomCatalogStore(private val dao: CatalogDao) : CatalogStore {
      * Retire les fiches d'un site qui ne figurent plus dans [keepUrls] (après réimport d'une base CI mise à jour).
      * Retourne le nombre de fiches retirées.
      */
-    suspend fun pruneSite(siteId: String, keepUrls: Set<String>): Int {
+    suspend fun pruneSite(siteId: String, keepUrls: Set<String>): Int = withContext(Dispatchers.IO) {
         val stale = dao.recipePages(siteId).map { it.url }.filter { it !in keepUrls }
-        if (stale.isEmpty()) return 0
+        if (stale.isEmpty()) return@withContext 0
         try {
             stale.chunked(400).forEach { dao.delete(it) }
         } finally {
             vectorCache.invalidate()
         }
-        return stale.size
+        stale.size
     }
 
     override suspend fun search(query: CatalogQuery): List<CatalogEntry> {

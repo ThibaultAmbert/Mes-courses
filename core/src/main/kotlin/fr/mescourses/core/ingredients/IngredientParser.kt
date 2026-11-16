@@ -69,9 +69,12 @@ object IngredientParser {
     )
 
     private val numberRegex = Regex("""^(\d+(?:[.,]\d+)?)(?:\s*/\s*(\d+))?(?:\s*(?:-|à|a)\s*(\d+(?:[.,]\d+)?))?""")
+    private val spaceRegex = Regex("\\s+")
+    private val prefixRegex = Regex("""^(?i)(de la |de l'|de l’|du |des |de |d'|d’)""")
+    private val parensRegex = Regex("""\s*\([^)]*\)""")
 
     fun parse(line: String): Ingredient {
-        val raw = line.trim().replace(Regex("\\s+"), " ")
+        val raw = line.trim().replace(spaceRegex, " ")
         if (raw.isEmpty()) return Ingredient(name = "", raw = line)
         var rest = raw.trimStart('-', '•', '*', ' ')
 
@@ -126,8 +129,8 @@ object IngredientParser {
 
         // 3. Nom : retire « de », « d' », « des » en tête et les précisions entre parenthèses
         var name = rest
-            .replace(Regex("""^(?i)(de la |de l'|de l’|du |des |de |d'|d’)"""), "")
-            .replace(Regex("""\s*\([^)]*\)"""), "")
+            .replace(prefixRegex, "")
+            .replace(parensRegex, "")
             .trim().trim(',', '.', ';', ' ')
         if (name.isEmpty()) name = raw
         return Ingredient(name = name, quantity = quantity, unit = unit, raw = raw)

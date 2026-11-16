@@ -100,62 +100,77 @@ data class Chosen(
  */
 object MenuComposer {
 
-    /** Points d'une candidate, compte tenu des plats déjà retenus. */
-    fun score(c: Candidate, chosen: List<Chosen>, wishes: MenuWishes, pairings: PairingGraph = PairingGraph.EMPTY): Double {
-        var s = c.base
-        val counts = chosen.groupingBy { it.kind }.eachCount()
-        val slotsLeft = wishes.meals - chosen.size
-        if (wishes.hasQuotas) {
-            val stillNeeded = DishKind.entries.sumOf { (wishes.quota(it) - (counts[it] ?: 0)).coerceAtLeast(0) }
-            when {
-                wishes.quota(c.kind) > (counts[c.kind] ?: 0) -> s += 8
-                // Plus assez de places pour honorer la composition demandée : ce type attendra.
-                stillNeeded >= slotsLeft -> s -= 100
+    /** Pré-calculs constants sur un ensemble de plats déjà choisis, évitant les O(N²) par candidate. */
+    private class ScoreContext(
+        chosen: List<Chosen>,
+        private val wishes: MenuWishes,
+        private val pairings: PairingGraph,
+    ) {
+        private val kindCounts = chosen.groupingBy { it.kind }.eachCount()
+        private val slotsLeft = wishes.meals - chosen.size
+        private val stillNeeded = if (wishes.hasQuotas) {
+            DishKind.entries.sumOf { (wishes.quota(it) - (kindCounts[it] ?: 0)).coerceAtLeast(0) }
+        } else 0
+        private val halfMeals = ceil(wishes.meals / 2.0).toInt()
+        private val chosenKeys = chosen.flatMapTo(HashSet()) { it.keys }
+        private val chosenKeyList = chosenKeys.toList()
+        private val basePairTotals = pairings.pairTotals(chosenKeyList)
+        private val proteinCounts = chosen.mapNotNull { it.protein }.groupingBy { it }.eachCount()
+        private val formCounts = chosen.mapNotNull { it.form }.groupingBy { it }.eachCount()
+        private val siteCounts = chosen.mapNotNull { it.site }.groupingBy { it }.eachCount()
+        private val chosenSets = chosen.map { it.keys }
+        private val cookbookCount = chosen.count { it.fromCookbook }
+        private val cookbookTarget = (wishes.meals * wishes.novelty.cookbookShare).roundToInt()
+        private val comfortCount = chosen.count { NutritionTag.COMFORT in it.tags }
+        private val hasOmega3 = chosen.any { NutritionTag.OMEGA3 in it.tags || it.kind == DishKind.POISSON }
+
+        fun sharedCount(keys: Set<String>): Int = keys.count { it in chosenKeys }
+
+        fun score(c: Candidate): Double {
+            var s = c.base
+            val nKind = kindCounts[c.kind] ?: 0
+            if (wishes.hasQuotas) {
+                when {
+                    wishes.quota(c.kind) > nKind -> s += 8
+                    stillNeeded >= slotsLeft -> s -= 100
+                }
+            } else {
+                when (c.kind) {
+                    DishKind.POISSON -> if (nKind >= 2) s -= 4
+                    DishKind.VIANDE -> if (nKind >= halfMeals) s -= 4
+                    DishKind.VEGE -> if (nKind > halfMeals) s -= 2
+                }
             }
-        } else {
-            // Repères santé : poisson 1 à 2 fois, viande au plus un repas sur deux.
-            val n = counts[c.kind] ?: 0
-            val half = ceil(wishes.meals / 2.0).toInt()
-            when (c.kind) {
-                DishKind.POISSON -> if (n >= 2) s -= 4
-                DishKind.VIANDE -> if (n >= half) s -= 4
-                DishKind.VEGE -> if (n > half) s -= 2
+            val shared = sharedCount(c.keys)
+            s += min(shared, 4) * 1.5
+            s -= (c.keys.size - shared) * 0.25
+            if (c.protein != null) {
+                val same = proteinCounts[c.protein] ?: 0
+                val bought = c.kind != DishKind.VEGE
+                s += when {
+                    same == 0 -> 0.0
+                    same == 1 -> if (bought) 2.5 else -3.0
+                    else -> -8.0
+                }
             }
-        }
-        // Liste de courses : réutiliser ce qui est déjà prévu, acheter peu de produits nouveaux.
-        val shared = c.keys.count { k -> chosen.any { k in it.keys } }
-        s += min(shared, 4) * 1.5
-        s -= (c.keys.size - shared) * 0.25
-        // Viande et poisson : la même pièce sert à deux plats (un seul achat), pas à trois.
-        if (c.protein != null) {
-            val same = chosen.count { it.protein == c.protein }
-            val bought = c.kind != DishKind.VEGE
-            s += when {
-                same == 0 -> 0.0
-                same == 1 -> if (bought) 2.5 else -3.0
-                else -> -8.0
+            if (c.keys.size >= 3 && chosenSets.any { similar(c.keys, it) }) s -= 8
+            if (c.form != null) {
+                val same = formCounts[c.form] ?: 0
+                if (same >= DishForms.MAX) s -= 100 else if (same == 1) s -= 5
             }
+            if (c.site != null) s -= (siteCounts[c.site] ?: 0) * 1.5
+            if (c.fromCookbook) s += if (cookbookCount < cookbookTarget) 5 else -5
+            s += 3.0 * pairings.affinityWithBase(c.keys, chosenKeyList, chosenKeys, basePairTotals)
+            if (NutritionTag.COMFORT in c.tags && comfortCount >= 1) s -= 3.0 * comfortCount
+            if (NutritionTag.LIGHT in c.tags && comfortCount >= 1) s += 2.0
+            if (NutritionTag.OMEGA3 in c.tags && !hasOmega3) s += 2.0
+            return s
         }
-        // Variété : pas deux plats presque identiques, au plus deux plats de même forme (pâtes, tarte, gratin…).
-        if (chosen.any { similar(c.keys, it.keys) }) s -= 8
-        if (c.form != null) {
-            val same = chosen.count { it.form == c.form }
-            if (same >= DishForms.MAX) s -= 100 else if (same == 1) s -= 5
-        }
-        // Les sites se partagent le menu : une recette d'un site déjà très présent passe après.
-        if (c.site != null) s -= chosen.count { it.site == c.site } * 1.5
-        // Dosage classiques / découvertes.
-        val target = (wishes.meals * wishes.novelty.cookbookShare).roundToInt()
-        if (c.fromCookbook) s += if (chosen.count { it.fromCookbook } < target) 5 else -5
-        // Accords d'ingrédients et équilibre nutritionnel du menu.
-        val chosenKeys = chosen.flatMapTo(HashSet()) { it.keys }
-        s += 3.0 * pairings.affinityScore(c.keys + chosenKeys)
-        val comfortCount = chosen.count { NutritionTag.COMFORT in it.tags }
-        if (NutritionTag.COMFORT in c.tags && comfortCount >= 1) s -= 3.0 * comfortCount
-        if (NutritionTag.LIGHT in c.tags && comfortCount >= 1) s += 2.0
-        if (NutritionTag.OMEGA3 in c.tags && chosen.none { NutritionTag.OMEGA3 in it.tags || it.kind == DishKind.POISSON }) s += 2.0
-        return s
     }
+
+    /** Points d'une candidate, compte tenu des plats déjà retenus. */
+    fun score(c: Candidate, chosen: List<Chosen>, wishes: MenuWishes, pairings: PairingGraph = PairingGraph.EMPTY): Double =
+        ScoreContext(chosen, wishes, pairings).score(c)
 
     private fun similar(a: Set<String>, b: Set<String>): Boolean {
         if (a.size < 3 || b.size < 3) return false
@@ -175,7 +190,8 @@ object MenuComposer {
         val state = chosen.toMutableList()
         val left = pool.filterNot { it in exclude }.toMutableList()
         while (state.size < wishes.meals && left.isNotEmpty()) {
-            val best = left.maxBy { score(it, state, wishes, pairings) }
+            val ctx = ScoreContext(state, wishes, pairings)
+            val best = left.maxBy { ctx.score(it) }
             left -= best
             picked += best
             state += Chosen.of(best)
@@ -185,8 +201,6 @@ object MenuComposer {
 
     /** Un échange qui rend la liste de courses plus courte : le plat [index] cède sa place à [candidate]. */
     data class Swap(val index: Int, val candidate: Candidate, val sharedBefore: Int, val sharedAfter: Int)
-
-    private fun shared(keys: Set<String>, others: List<Chosen>) = keys.count { k -> others.any { k in it.keys } }
 
     /**
      * « Mieux mutualiser », sans LLM : cherche le plat à remplacer par une candidate qui partage davantage
@@ -202,15 +216,29 @@ object MenuComposer {
     ): Swap? {
         val w = wishes.copy(meals = dishes.size)
         val taken = dishes.mapNotNull { it.second }.toSet() + exclude
+        val available = pool.filterNot { it in taken }
+        if (available.isEmpty()) return null
         return dishes.indices.mapNotNull { i ->
             val others = dishes.filterIndexed { j, _ -> j != i }.map { it.first }
             val (current, origin) = dishes[i]
-            val before = shared(current.keys, others)
-            val best = pool.filterNot { it in taken }
-                .filter { shared(it.keys, others) > before && (origin == null || score(it, others, w, pairings) >= score(origin, others, w, pairings)) }
-                .maxWithOrNull(compareBy<Candidate> { shared(it.keys, others) }.thenBy { score(it, others, w, pairings) })
-                ?: return@mapNotNull null
-            Swap(i, best, before, shared(best.keys, others))
+            val ctx = ScoreContext(others, w, pairings)
+            val before = ctx.sharedCount(current.keys)
+            val floorScore = origin?.let { ctx.score(it) } ?: Double.NEGATIVE_INFINITY
+            var bestCand: Candidate? = null
+            var bestShared = before
+            var bestScore = Double.NEGATIVE_INFINITY
+            for (cand in available) {
+                val sh = ctx.sharedCount(cand.keys)
+                if (sh <= before) continue
+                val sc = ctx.score(cand)
+                if (sc < floorScore) continue
+                if (sh > bestShared || (sh == bestShared && sc > bestScore)) {
+                    bestCand = cand
+                    bestShared = sh
+                    bestScore = sc
+                }
+            }
+            bestCand?.let { Swap(i, it, before, bestShared) }
         }.maxByOrNull { it.sharedAfter - it.sharedBefore }
     }
 

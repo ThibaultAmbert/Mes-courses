@@ -41,3 +41,44 @@ class RetailerProductMemory(private val retailer: Retailer, private val inner: P
     override suspend fun get(key: String): Product? = inner.get(scoped(key))
     override suspend fun remember(key: String, product: Product) = inner.remember(scoped(key), product)
 }
+
+/** Cache mémoire à durée de vie limitée et éviction LRU (sûr en accès concurrent). */
+class TtlCache<V>(
+    private val ttlMs: Long,
+    private val maxEntries: Int = 128,
+    private val now: () -> Long = System::currentTimeMillis,
+) {
+    private data class Entry<V>(val at: Long, val value: V)
+    data class Hit<out V>(val value: V)
+
+    private val entries = LinkedHashMap<String, Entry<V>>(16, 0.75f, true)
+
+    @Synchronized
+    fun get(key: String): Hit<V>? {
+        val e = entries[key] ?: return null
+        if (now() - e.at >= ttlMs) {
+            entries.remove(key)
+            return null
+        }
+        return Hit(e.value)
+    }
+
+    @Synchronized
+    fun put(key: String, value: V) {
+        val t = now()
+        val it = entries.entries.iterator()
+        while (it.hasNext()) {
+            if (t - it.next().value.at >= ttlMs) it.remove()
+        }
+        entries[key] = Entry(t, value)
+        while (entries.size > maxEntries) {
+            val eldest = entries.keys.firstOrNull() ?: break
+            entries.remove(eldest)
+        }
+    }
+
+    @Synchronized
+    fun clear() {
+        entries.clear()
+    }
+}

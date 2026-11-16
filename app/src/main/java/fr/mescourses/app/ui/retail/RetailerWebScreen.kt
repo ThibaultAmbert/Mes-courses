@@ -137,6 +137,10 @@ fun RetailerWebScreen(retailer: Retailer, startUrl: String, mode: WebMode, onClo
     }
     /** Adresses hCaptcha chargées et leurs erreurs (relevées hors du fil principal, d'où la liste synchronisée). */
     val hcaptchaLog = remember { java.util.Collections.synchronizedList(mutableListOf<String>()) }
+    fun logHcaptcha(entry: String) = synchronized(hcaptchaLog) {
+        hcaptchaLog += entry
+        while (hcaptchaLog.size > 40) hcaptchaLog.removeAt(0)
+    }
     val settingsState by c.settings.state.collectAsStateWithLifecycle()
 
     /** Rassemble ce qu'il faut pour comprendre une page blanche (jamais de cookie ni de contenu de formulaire). */
@@ -156,8 +160,9 @@ fun RetailerWebScreen(retailer: Retailer, startUrl: String, mode: WebMode, onClo
                 val raw = runCatching { Json.parseToJsonElement(result ?: "").jsonPrimitive.content }.getOrNull()
                 val pretty = raw?.let { r -> runCatching { prettyJson.encodeToString(JsonElement.serializer(), Json.parseToJsonElement(r)) }.getOrNull() ?: r }
                 appendLine("Contenu : ${pretty ?: result ?: "?"}")
-                appendLine("Ressources hCaptcha (${hcaptchaLog.size}) :")
-                synchronized(hcaptchaLog) { if (hcaptchaLog.isEmpty()) appendLine("  aucune") else hcaptchaLog.takeLast(15).forEach { appendLine("  $it") } }
+                val hcaptchaSnapshot = synchronized(hcaptchaLog) { hcaptchaLog.size to hcaptchaLog.takeLast(15) }
+                appendLine("Ressources hCaptcha (${hcaptchaSnapshot.first}) :")
+                if (hcaptchaSnapshot.second.isEmpty()) appendLine("  aucune") else hcaptchaSnapshot.second.forEach { appendLine("  $it") }
                 appendLine("Erreurs JS (${jsErrors.size}) :")
                 if (jsErrors.isEmpty()) appendLine("  aucune") else jsErrors.forEach { appendLine("  $it") }
             }.trimEnd()
@@ -413,12 +418,12 @@ fun RetailerWebScreen(retailer: Retailer, startUrl: String, mode: WebMode, onClo
 
                     override fun onReceivedError(v: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
                         if (request?.isForMainFrame == true) loadError = "${error?.description ?: "erreur"} (${request.url.host})"
-                        else if (request?.url?.host?.contains("hcaptcha") == true) hcaptchaLog += "⚠ ${error?.description} ${request.url.host}${request.url.path}"
+                        else if (request?.url?.host?.contains("hcaptcha") == true) logHcaptcha("⚠ ${error?.description} ${request.url.host}${request.url.path}")
                     }
 
                     override fun onReceivedHttpError(v: WebView?, request: WebResourceRequest?, errorResponse: WebResourceResponse?) {
                         if (request?.isForMainFrame == true) loadError = "HTTP ${errorResponse?.statusCode} (${request.url.host})"
-                        else if (request?.url?.host?.contains("hcaptcha") == true) hcaptchaLog += "⚠ HTTP ${errorResponse?.statusCode} ${request.url.host}${request.url.path}"
+                        else if (request?.url?.host?.contains("hcaptcha") == true) logHcaptcha("⚠ HTTP ${errorResponse?.statusCode} ${request.url.host}${request.url.path}")
                     }
 
                     override fun onPageFinished(v: WebView?, url: String?) {
@@ -456,8 +461,7 @@ fun RetailerWebScreen(retailer: Retailer, startUrl: String, mode: WebMode, onClo
                     override fun shouldInterceptRequest(v: WebView?, request: WebResourceRequest?): WebResourceResponse? {
                         bridge.observe(request)
                         request?.url?.takeIf { it.host?.contains("hcaptcha") == true }?.let { u ->
-                            hcaptchaLog += "${request.method} ${u.host}${u.path}"
-                            synchronized(hcaptchaLog) { while (hcaptchaLog.size > 40) hcaptchaLog.removeAt(0) }
+                            logHcaptcha("${request.method} ${u.host}${u.path}")
                         }
                         return null
                     }

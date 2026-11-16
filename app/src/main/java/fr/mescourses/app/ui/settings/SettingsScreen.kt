@@ -44,6 +44,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -74,8 +75,10 @@ import fr.mescourses.app.llm.ModelInfo
 import fr.mescourses.app.llm.ModelStatus
 import fr.mescourses.app.ui.common.ScreenScaffold
 import fr.mescourses.app.ui.common.containerViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 class SettingsViewModel(val c: AppContainer) : ViewModel() {
@@ -100,7 +103,7 @@ class SettingsViewModel(val c: AppContainer) : ViewModel() {
     fun download(model: ModelInfo) = c.models.download(model, hfToken = settings.value.hfToken) { path -> c.selectModel(path) }
 
     fun import(uri: Uri) = c.appScope.launch {
-        runCatching { c.models.import(uri) }
+        fr.mescourses.core.runCatchingCancellable { c.models.import(uri) }
             .onSuccess { path -> installed.value = c.models.installed(); c.selectModel(path) }
             .onFailure { testResult.value = "Import impossible : ${it.message}" }
     }
@@ -151,8 +154,11 @@ fun SettingsScreen(onBack: () -> Unit, onLogin: (Retailer) -> Unit, onChooseStor
         ) {
             SectionCard {
                 SectionHeader("Assistant local", emoji = "🤖")
+                val freeGb by produceState<Double?>(null, installed) {
+                    value = withContext(Dispatchers.IO) { vm.c.models.freeSpaceGb() }
+                }
                 Text(
-                    "Il tourne entièrement sur ton téléphone (LiteRT-LM, GPU Adreno). Espace libre : %.1f Go.".format(vm.c.models.freeSpaceGb()),
+                    "Il tourne entièrement sur ton téléphone (LiteRT-LM, GPU Adreno)." + (freeGb?.let { " Espace libre : %.1f Go.".format(it) } ?: ""),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

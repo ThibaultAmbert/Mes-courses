@@ -41,13 +41,17 @@ object DishVisuals {
         Triple("mousse", "🍫", Category.DESSERT), Triple("clafoutis", "🍒", Category.DESSERT),
     )
 
-    private fun word(kw: String) = " " + ShoppingListMerger.key(kw) + " "
+    private val compiled: List<Triple<String, String, Category>> by lazy {
+        byTitle.map { (kw, emoji, cat) -> Triple(" " + ShoppingListMerger.key(kw) + " ", emoji, cat) }
+    }
 
     fun of(title: String, ingredients: List<String> = emptyList()): Visual {
         val t = " " + ShoppingListMerger.key(title) + " "
-        byTitle.firstOrNull { (kw, _, _) -> word(kw) in t }?.let { return Visual(it.second, it.third) }
-        val ing = " " + ingredients.joinToString(" ") { ShoppingListMerger.key(it) } + " "
-        byTitle.firstOrNull { (kw, _, _) -> word(kw) in ing }?.let { return Visual(it.second, it.third) }
+        compiled.firstOrNull { (kw, _, _) -> kw in t }?.let { return Visual(it.second, it.third) }
+        if (ingredients.isNotEmpty()) {
+            val ing = " " + ingredients.joinToString(" ") { ShoppingListMerger.key(it) } + " "
+            compiled.firstOrNull { (kw, _, _) -> kw in ing }?.let { return Visual(it.second, it.third) }
+        }
         return Visual("🍽", Category.AUTRE)
     }
 }
