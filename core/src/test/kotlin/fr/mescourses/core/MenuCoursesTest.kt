@@ -7,6 +7,7 @@ import fr.mescourses.core.model.Portions
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class MenuCoursesTest {
@@ -30,5 +31,24 @@ class MenuCoursesTest {
             MenuDish("Curry", portions = Portions(2)),
         )
         assertEquals(listOf("Velouté", "Gratin", "Curry", "Tarte"), dishes.sortedBy { it.courseRank }.map { it.title })
+    }
+
+    @Test fun `un dessert ou une entree garde sa place dans le menu`() {
+        assertEquals(Course.DESSERT, Course.DESSERT.toMenuCourse())
+        assertEquals(Course.ENTREE, Course.ENTREE.toMenuCourse())
+        assertNull(Course.PLAT.toMenuCourse())
+        assertNull(Course.SOUPE.toMenuCourse())
+        assertNull(Course.SALADE.toMenuCourse())
+        assertNull(Course.AUTRE.toMenuCourse())
+
+        assertEquals(
+            Course.DESSERT,
+            Course.of(listOf("Desserts")).toMenuCourse(),
+        )
+        assertEquals(
+            Course.AUTRE,
+            Course.of(emptyList()),
+        )
+        assertNull(Course.of(emptyList()).toMenuCourse())
     }
 }

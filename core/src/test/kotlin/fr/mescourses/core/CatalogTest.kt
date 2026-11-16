@@ -70,14 +70,16 @@ class CatalogTest {
     @Test fun type_de_recette() {
         assertEquals(Course.DESSERT, entry("The Basilic Monster", "Gâteaux", "5", "200 g de farine", "3 œufs").course)
         assertEquals(Course.ENTREE, entry("Œufs cocotte aux asperges", "Entrées", "5", "4 œufs", "1 botte d'asperges").course)
-        assertEquals(Course.SOUPE, entry("Velouté de potimarron", null, "4.5", "1 potimarron", "1 oignon").course)
-        assertEquals(Course.DESSERT, entry("Tarte à la rhubarbe : la recette facile", "Tarte à la rhubarbe classique", "4.2", "500 g de rhubarbe", "1 pâte brisée").course)
-        // Catégorie muette (« Autre ») : l'assiette décide.
-        assertEquals(Course.PLAT, entry("Saumon aux endives", "Autre", "4.8", "4 pavés de saumon", "6 endives", "200 g de riz").course)
+        assertEquals(Course.APERITIF, entry("Bouchées au fromage", "Amuse-gueule", "4.7", "200 g de fromage", "1 pâte feuilletée").course)
+        assertEquals(Course.PLAT, entry("Blanquette à l'ancienne", "Plat en sauce", "4.8", "800 g de veau", "2 carottes", "20 cl de crème").course)
+        // Aucune déduction depuis le titre, les badges ou les ingrédients : sans type du site reconnu, c'est AUTRE.
+        assertEquals(Course.AUTRE, entry("Velouté de potimarron", null, "4.5", "1 potimarron", "1 oignon").course)
+        assertEquals(Course.AUTRE, entry("Tarte à la rhubarbe : la recette facile", "Tarte à la rhubarbe classique", "4.2", "500 g de rhubarbe", "1 pâte brisée").course)
+        assertEquals(Course.AUTRE, entry("Saumon aux endives", "Autre", "4.8", "4 pavés de saumon", "6 endives", "200 g de riz").course)
         assertEquals(Course.AUTRE, entry("Nectarine rôtie", "Autre", "4.8", "4 nectarines", "1 c. à soupe de miel").course)
     }
 
-    @Test fun toute_fiche_lisible_entre_au_catalogue() {
+    @Test fun toute_fiche_lisible_et_typee_entre_au_catalogue() {
         val good = entry("Curry de pois chiches", "Plat", "4.5", "400 g de pois chiches", "20 cl de lait de coco", "200 g de riz")
         val poor = entry("Curry de pois chiches", "Plat", "3.2", "400 g de pois chiches", "20 cl de lait de coco", "200 g de riz")
         val unrated = entry("Curry de pois chiches", "Plat", null, "400 g de pois chiches", "20 cl de lait de coco", "200 g de riz")
@@ -86,8 +88,10 @@ class CatalogTest {
         // La note sert au classement, pas au tri à l'entrée.
         assertTrue(CatalogPolicy.wellRated(good))
         assertFalse(CatalogPolicy.wellRated(poor) || CatalogPolicy.wellRated(unrated))
-        // Une fiche vide n'entre jamais.
-        assertFalse(CatalogPolicy.accepts(entry("Astuce", null, null, "1 citron")))
+        // Une fiche vide ou sans type reconnu n'entre jamais.
+        assertFalse(CatalogPolicy.accepts(entry("Astuce", "Plat", null, "1 citron")))
+        assertFalse(CatalogPolicy.accepts(entry("Velouté de potimarron", null, "4.8", "1 potimarron", "1 oignon")))
+        assertFalse(CatalogPolicy.accepts(entry("Saumon aux endives", "Autre", "4.8", "4 pavés de saumon", "6 endives", "200 g de riz")))
         assertNotNull(RecipeJsonLdExtractor.extractDetails(page("X", null, null, "a", "b")))
     }
 
@@ -135,7 +139,27 @@ class CatalogTest {
         assertEquals((1..4).map { "https://www.750g.com/tarte-$it-r$it.htm" }.toSet(), crawler.pages(source).map { it.url }.toSet())
         assertEquals(4, crawler.pages(source).size)
         assertFalse("https://www.750g.com/recettes-plats/pates/?page=4" in fetched, fetched.toString())
+        assertTrue(crawler.pages(source).all { it.category == null })
         assertNotNull(fr.mescourses.core.catalog.CatalogSources.byId("750g"))
+    }
+
+    @Test fun rubrique_d_un_type_recuperee_au_crawl_si_jsonld_sans_categorie() = kotlinx.coroutines.test.runTest {
+        val listingHtml = """<a href="/recette-tarte-betterave.htm">Tarte</a>"""
+        val recipeHtml = page("Tarte betterave", null, "4.6", "200 g de betterave", "1 pâte brisée", "100 g de feta")
+        val site = mapOf(
+            "https://www.cuisineaddict.com/recettes-entrees.htm" to listingHtml,
+            "https://www.cuisineaddict.com/recettes-plats.htm" to "",
+            "https://www.cuisineaddict.com/recettes-accompagnements.htm" to "",
+            "https://www.cuisineaddict.com/recettes-desserts.htm" to "",
+            "https://www.cuisineaddict.com/recette-tarte-betterave.htm" to recipeHtml,
+        )
+        val source = assertNotNull(fr.mescourses.core.catalog.CatalogSources.byId("cuisineaddict"))
+        val crawler = fr.mescourses.core.catalog.SiteCrawler { url -> site[url] ?: error("404: $url") }
+        val pages = crawler.pages(source)
+        assertEquals("Entrée", pages.single().category)
+        val entry = assertNotNull(crawler.read(source, pages.single()))
+        assertEquals(Course.ENTREE, entry.course)
+        assertEquals("Entrée", entry.category)
     }
 
     // ---------- Recherche locale et mise à jour ----------

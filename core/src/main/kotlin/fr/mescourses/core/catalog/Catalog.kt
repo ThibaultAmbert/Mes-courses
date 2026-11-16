@@ -8,8 +8,6 @@ import fr.mescourses.core.menu.DishKinds
 import fr.mescourses.core.menu.IngredientOverlap
 import fr.mescourses.core.menu.PlateBalance
 import fr.mescourses.core.model.Recipe
-import fr.mescourses.core.recipes.RecipeFilter
-import fr.mescourses.core.recipes.RecipeFilters
 import fr.mescourses.core.recipes.RecipeJsonLdExtractor
 import fr.mescourses.core.recipes.RecipeSites
 import fr.mescourses.core.season.Seasonality
@@ -18,7 +16,7 @@ import fr.mescourses.core.shopping.ShoppingListMerger
 import kotlinx.serialization.Serializable
 import java.time.Month
 
-/** Place d'une recette dans un repas, d'après la catégorie donnée par le site ou, à défaut, son titre. */
+/** Place d'une recette dans un repas, d'après la catégorie donnée par le site. */
 enum class Course(val label: String) {
     PLAT("Plat"), SOUPE("Soupe"), SALADE("Salade"), ENTREE("Entrée"), ACCOMPAGNEMENT("Accompagnement"),
     DESSERT("Dessert"), APERITIF("Apéritif"), BOISSON("Boisson"), AUTRE("Autre");
@@ -26,13 +24,22 @@ enum class Course(val label: String) {
     /** Peut faire un repas du menu. */
     val meal: Boolean get() = this == PLAT || this == SOUPE || this == SALADE
 
+    /** Place correspondante dans un menu : ENTREE, DESSERT, ou null pour un plat principal. */
+    fun toMenuCourse(): Course? = when (this) {
+        DESSERT -> DESSERT
+        ENTREE -> ENTREE
+        else -> null
+    }
+
     companion object {
         private val words = listOf(
             DESSERT to listOf("dessert", "gateau", "patisserie", "tarte sucree", "biscuit", "glace", "creme dessert", "confiserie", "gouter", "viennoiserie", "confiture", "petit dejeuner", "crepe sucree", "mousse au chocolat"),
             BOISSON to listOf("boisson", "cocktail", "smoothie", "jus"),
-            APERITIF to listOf("aperitif", "apero", "amuse bouche", "tapas", "dip", "toast"),
+            APERITIF to listOf("aperitif", "apero", "amuse bouche", "amuse gueule", "tapas", "dip", "toast"),
             SOUPE to listOf("soupe", "veloute", "potage", "bouillon"),
             SALADE to listOf("salade"),
+            // « Plat en sauce » contient « sauce », qui sinon le rangerait en accompagnement.
+            PLAT to listOf("plat en sauce"),
             ACCOMPAGNEMENT to listOf("accompagnement", "sauce", "condiment", "pain"),
             ENTREE to listOf("entree"),
             PLAT to listOf("plat", "viande", "poisson", "volaille", "pate", "gratin", "quiche", "pizza", "curry", "risotto", "burger", "tajine", "wok", "poelee", "one pot", "plat unique", "plat complet"),
@@ -43,20 +50,8 @@ enum class Course(val label: String) {
             return words.firstOrNull { (_, list) -> list.any { " ${ShoppingListMerger.key(it)} " in key } }?.first
         }
 
-        /** Catégorie du site d'abord (« Plat principal », « Entrées ») ; sinon le titre ; sinon l'équilibre de l'assiette. */
-        fun of(categories: List<String>, title: String, ingredients: List<String>): Course {
-            categories.firstNotNullOfOrNull(::find)?.let { return it }
-            when (RecipeFilters.badge(title)) {
-                RecipeFilter.DESSERT -> return DESSERT
-                RecipeFilter.SOUPE -> return SOUPE
-                RecipeFilter.SALADE -> return SALADE
-                else -> Unit
-            }
-            find(title)?.let { return it }
-            // Une protéine et des légumes ou un féculent : c'est un plat.
-            val parts = PlateBalance.components(listOf(title) + ingredients)
-            return if (PlateBalance.Component.PROTEINE in parts && parts.size >= 2) PLAT else AUTRE
-        }
+        /** D'après la catégorie donnée par le site uniquement (« Plat principal », « Entrées »…) ; [AUTRE] sinon. */
+        fun of(categories: List<String>): Course = categories.firstNotNullOfOrNull(::find) ?: AUTRE
     }
 }
 
@@ -178,7 +173,7 @@ private class Computed(
 private fun computed(title: String, names: List<String>, raws: List<String>, categories: List<String>, minutes: Int?): Computed {
     val texts = listOf(title) + names
     val keys = keysOf(names, raws)
-    val course = Course.of(categories, title, names)
+    val course = Course.of(categories)
     // Saison : les fruits et légumes de la recette doivent tous se trouver ce mois-là.
     val months = Month.entries.filter { m -> Seasonality.report(texts, m).outOfSeason.isEmpty() }.map { it.value }
     val produce = Month.entries.flatMap { Seasonality.report(texts, it).seasonal }.distinct()
@@ -193,15 +188,16 @@ private fun computed(title: String, names: List<String>, raws: List<String>, cat
 }
 
 /**
- * Ce qui entre au catalogue : toute fiche lisible. Puisqu'il faut lire chaque fiche pour connaître sa note et son
- * type, on la garde ; la note et le type de plat servent ensuite à trier et filtrer les recherches, pas à écarter.
+ * Ce qui entre au catalogue : toute fiche lisible portant un type de plat reconnu donné par le site.
+ * Sans type reconnu (`Course.AUTRE`), la fiche est écartée ; la note sert ensuite à trier les résultats.
  */
 object CatalogPolicy {
     /** « Bien noté » pour le classement des résultats et le choix des recettes du menu. */
     const val GOOD_RATING = 4.0
     const val MIN_RATING_COUNT = 3
 
-    fun accepts(entry: CatalogEntry): Boolean = entry.title.isNotBlank() && entry.ingredients.size >= 2
+    fun accepts(entry: CatalogEntry): Boolean =
+        entry.title.isNotBlank() && entry.ingredients.size >= 2 && entry.course != Course.AUTRE
 
     fun wellRated(entry: CatalogEntry): Boolean =
         (entry.rating ?: 0.0) >= GOOD_RATING && (entry.ratingCount ?: 0) >= MIN_RATING_COUNT
@@ -209,7 +205,7 @@ object CatalogPolicy {
 
 /** Un fichier de sitemap : soit un index d'autres sitemaps, soit une liste d'adresses avec leur date de modification. */
 data class Sitemap(val children: List<String>, val pages: List<Page>) {
-    data class Page(val url: String, val lastmod: String?)
+    data class Page(val url: String, val lastmod: String?, val category: String? = null)
 
     companion object {
         private val entry = Regex("""<(sitemap|url)\b[^>]*>(.*?)</\1>""", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))

@@ -85,7 +85,7 @@ data class Chosen(
                 tags = NutritionTags.of(
                     d.title,
                     keys.toList(),
-                    d.course ?: Course.of(emptyList(), d.title, d.mainIngredients).takeIf { it != Course.AUTRE } ?: Course.PLAT,
+                    d.course ?: Course.PLAT,
                     d.totalMinutes,
                 ),
             )

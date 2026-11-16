@@ -1,6 +1,7 @@
 package fr.mescourses.tools.catalog
 
 import fr.mescourses.core.catalog.CatalogEntry
+import fr.mescourses.core.catalog.CatalogPolicy
 import fr.mescourses.core.catalog.CatalogRationalizer
 import fr.mescourses.core.catalog.CatalogSource
 import fr.mescourses.core.catalog.CatalogSources
@@ -17,6 +18,8 @@ import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.time.Duration
 import java.util.zip.GZIPInputStream
 import kotlin.system.exitProcess
@@ -102,6 +105,47 @@ private class Builder(private val source: CatalogSource, out: File, rate: Double
     private val crawler = SiteCrawler(http::get)
     private val entries = File(out, "${source.siteId}.jsonl")
     private val seenFile = File(out, "${source.siteId}.seen.tsv")
+
+    init {
+        dropMissingCategoryEntries()
+    }
+
+    /** Retire du brut les anciennes fiches sans catégorie (ex. picnic, cuisineaddict) pour les relire une fois. */
+    private fun dropMissingCategoryEntries() {
+        if (!entries.exists()) return
+        val hasCategory = HashMap<String, Boolean>()
+        entries.forEachLine { line ->
+            val entry = runCatching { json.decodeFromString(CatalogEntry.serializer(), line) }.getOrNull() ?: return@forEachLine
+            hasCategory[entry.id] = !entry.category.isNullOrBlank()
+        }
+        val staleIds = hasCategory.filterValues { !it }.keys
+        if (staleIds.isEmpty()) return
+        val entriesTmp = File(entries.parentFile, "${entries.name}.tmp")
+        entriesTmp.bufferedWriter(Charsets.UTF_8).use { w ->
+            entries.forEachLine { line ->
+                val entry = runCatching { json.decodeFromString(CatalogEntry.serializer(), line) }.getOrNull()
+                if (entry != null && entry.id !in staleIds) {
+                    w.write(line); w.newLine()
+                }
+            }
+        }
+        Files.move(entriesTmp.toPath(), entries.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        if (seenFile.exists()) {
+            val seenTmp = File(seenFile.parentFile, "${seenFile.name}.tmp")
+            seenTmp.bufferedWriter(Charsets.UTF_8).use { w ->
+                seenFile.forEachLine { line ->
+                    val cols = line.split('\t')
+                    val id = cols.getOrNull(0)
+                    val status = cols.getOrElse(2) { "" }
+                    if (id !in staleIds || status != "ok") {
+                        w.write(line); w.newLine()
+                    }
+                }
+            }
+            Files.move(seenTmp.toPath(), seenFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        }
+        println("${source.siteId} : ${staleIds.size} fiches sans catégorie retirées pour relecture")
+    }
 
     /** Adresse normalisée → date de modification vue au dernier passage (les erreurs ne comptent pas : on réessaie). */
     private val seen: MutableMap<String, String> = HashMap<String, String>().apply {
@@ -234,10 +278,13 @@ private fun split(options: Map<String, String>, out: File) {
     if (!input.isFile) fail("fichier introuvable : $input")
     val entries = readEntries(input)
     var noSite = 0
+    var rejected = 0
     val bySite = sortedMapOf<String, MutableList<CatalogEntry>>()
     for (e in entries) {
         if (e.siteId.isBlank()) { noSite++; continue }
-        bySite.getOrPut(e.siteId) { ArrayList() }.add(e.recompute())
+        val recomputed = e.recompute()
+        if (!CatalogPolicy.accepts(recomputed)) { rejected++; continue }
+        bySite.getOrPut(e.siteId) { ArrayList() }.add(recomputed)
     }
     out.mkdirs()
     var total = 0
@@ -246,7 +293,11 @@ private fun split(options: Map<String, String>, out: File) {
         total += list.size
         println("$id : ${list.size}")
     }
-    println("Total : $total fiches, ${bySite.size} sites" + if (noSite > 0) " ($noSite fiches sans siteId ignorées)" else "")
+    val notes = listOfNotNull(
+        if (noSite > 0) "$noSite sans siteId" else null,
+        if (rejected > 0) "$rejected sans type ou incomplètes" else null,
+    )
+    println("Total : $total fiches, ${bySite.size} sites" + if (notes.isNotEmpty()) " (écartées : ${notes.joinToString(", ")})" else "")
 }
 
 private fun stats(out: File) {

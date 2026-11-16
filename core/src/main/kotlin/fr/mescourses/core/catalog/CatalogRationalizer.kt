@@ -7,7 +7,7 @@ import kotlinx.serialization.json.Json
 @Serializable
 data class RationalizationConfig(
     val requireUniqueImage: Boolean = true,
-    val excludedCourses: Set<Course> = setOf(Course.BOISSON),
+    val excludedCourses: Set<Course> = setOf(Course.BOISSON, Course.AUTRE),
     val defaultMinRating: Double = 4.5,
     val minRatingBySite: Map<String, Double> = mapOf("hellofresh" to 4.0),
     val minRatingCount: Int = 10,
@@ -27,12 +27,19 @@ data class RationalizationConfig(
 object CatalogRationalizer {
     enum class Reason { TITLE, INGREDIENTS, COURSE, TIME, IMAGE, RATING_COUNT, RATING }
 
+    /** Recalcule le type depuis [CatalogEntry.category] avant filtrage pour écarter d'anciennes fiches sans type reconnu. */
+    private fun withFreshCourse(entry: CatalogEntry): CatalogEntry =
+        entry.copy(course = Course.of(listOfNotNull(entry.category)))
+
     /** null si la fiche est rejetée ; sinon la fiche recalculée. [seenImages] : images déjà vues, partagé sur tout un passage. */
     fun filterSingle(
         entry: CatalogEntry,
         config: RationalizationConfig = RationalizationConfig(),
         seenImages: MutableSet<String>? = null,
-    ): CatalogEntry? = if (reject(entry, config, seenImages) == null) entry.recompute() else null
+    ): CatalogEntry? {
+        val fresh = withFreshCourse(entry)
+        return if (reject(fresh, config, seenImages) == null) fresh.recompute() else null
+    }
 
     /** La raison du rejet, null si la fiche est gardée. L'image n'est retenue que si la fiche passe les tests précédents. */
     fun reject(entry: CatalogEntry, config: RationalizationConfig, seenImages: MutableSet<String>?): Reason? {
@@ -91,9 +98,10 @@ object CatalogRationalizer {
         val passed = ArrayList<CatalogEntry>()
         for (e in ordered) {
             read.merge(e.siteId, 1, Int::plus)
-            val reason = reject(e, config, seenImages)
-            if (reason == null) passed += e.recompute()
-            else rejected.getOrPut(e.siteId) { sortedMapOf() }.merge(reason, 1, Int::plus)
+            val fresh = withFreshCourse(e)
+            val reason = reject(fresh, config, seenImages)
+            if (reason == null) passed += fresh.recompute()
+            else rejected.getOrPut(fresh.siteId) { sortedMapOf() }.merge(reason, 1, Int::plus)
         }
         val dedupe = titleDedupe ?: { l -> TitleDeduplicator.dedupe(l) }
         val kept = if (config.dedupeTitles) dedupe(passed) else passed

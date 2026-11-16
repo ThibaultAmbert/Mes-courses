@@ -48,4 +48,54 @@ class RecipeJsonLdExtractorTest {
         assertEquals("https://img.fr/a.webp", r.imageUrl)
         assertEquals(5, RecipeJsonLdExtractor.extractDetails(page)?.totalMinutes)
     }
+
+    @Test fun recupere_categorie_depuis_fil_d_ariane_ou_flux_nextjs() {
+        val breadcrumbJsonLd = """<html><head><script type="application/ld+json">{
+            "@context":"https://schema.org","@graph":[
+                {"@type":"BreadcrumbList","itemListElement":[
+                    {"@type":"ListItem","position":1,"name":"Accueil","item":"https://ex.fr/"},
+                    {"@type":"ListItem","position":2,"name":"Desserts","item":"https://ex.fr/desserts"},
+                    {"@type":"ListItem","position":3,"name":"Velouté glacé"}
+                ]},
+                {"@type":"Recipe","name":"Velouté glacé","recipeIngredient":["200 g de chocolat","2 œufs"]}
+            ]}</script></head></html>"""
+        assertEquals(
+            listOf("Desserts"),
+            RecipeJsonLdExtractor.extractDetails(breadcrumbJsonLd, "https://ex.fr/r/1")?.categories,
+        )
+
+        // Le dernier élément (titre) ne doit pas provoquer de déduction même sans recipeCategory.
+        val titleInBreadcrumb = """<html><head><script type="application/ld+json">{
+            "@context":"https://schema.org","@graph":[
+                {"@type":"BreadcrumbList","itemListElement":[
+                    {"@type":"ListItem","position":1,"name":"Accueil","item":"https://ex.fr/"},
+                    {"@type":"ListItem","position":2,"name":"Recettes","item":"https://ex.fr/recettes"},
+                    {"@type":"ListItem","position":3,"name":"Soupe de potiron"}
+                ]},
+                {"@type":"Recipe","name":"Soupe de potiron","recipeIngredient":["1 potiron","1 oignon"]}
+            ]}</script></head></html>"""
+        assertEquals(
+            emptyList(),
+            RecipeJsonLdExtractor.extractDetails(titleInBreadcrumb, "https://ex.fr/r/2")?.categories,
+        )
+
+        val picnicCourse = """{"@context":"https://schema.org","@type":"Recipe","name":"Wok de boeuf","recipeIngredient":["200 g de boeuf","2 carottes"]}"""
+        val literal = picnicCourse.replace("\\", "\\\\").replace("\"", "\\\"")
+        val nextPage = """<html><body>
+            <script>self.__next_f.push([1,"1d:{\"mealType\":\"Plat\",\"title\":\"Wok\"}"])</script>
+            <script>self.__next_f.push([1,"$literal"])</script>
+        </body></html>"""
+        assertEquals(
+            listOf("Plat"),
+            RecipeJsonLdExtractor.extractDetails(nextPage, "https://picnic.app/fr/recettes/abc/wok")?.categories,
+        )
+
+        val htmlCrumb = """<html><head><script type="application/ld+json">
+            {"@context":"https://schema.org","@type":"Recipe","name":"Brick au thon","recipeIngredient":["2 feuilles","1 boîte"]}
+            </script></head><body><nav aria-label="Breadcrumb"><a href="/">Accueil</a><a href="/entrees">Entrées</a><span>Brick au thon</span></nav></body></html>"""
+        assertEquals(
+            listOf("Entrées"),
+            RecipeJsonLdExtractor.extractDetails(htmlCrumb, "https://ex.fr/brick")?.categories,
+        )
+    }
 }

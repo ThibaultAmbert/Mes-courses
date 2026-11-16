@@ -118,7 +118,8 @@ class TitleDeduplicatorTest {
     }
 
     @Test fun process_deduplique_sur_demande() {
-        fun r(n: Int, title: String, site: String) = e(n, title, site, rating = 4.8, count = 20 + n).copy(totalMinutes = 30, imageUrl = "https://img/$n.jpg", course = Course.PLAT)
+        fun r(n: Int, title: String, site: String) = e(n, title, site, rating = 4.8, count = 20 + n)
+            .copy(totalMinutes = 30, imageUrl = "https://img/$n.jpg", category = "Plat", course = Course.PLAT)
         val list = listOf(r(1, "Blanquette de veau", "marmiton"), r(2, "Blanquette de veau", "750g"), r(3, "Boeuf bourguignon", "marmiton"))
         val res = CatalogRationalizer.process(list, RationalizationConfig(dedupeTitles = true))
         assertEquals(listOf("Blanquette de veau", "Boeuf bourguignon"), res.kept.map { it.title })
