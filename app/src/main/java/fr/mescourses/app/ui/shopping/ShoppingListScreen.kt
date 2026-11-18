@@ -2,11 +2,37 @@
 
 package fr.mescourses.app.ui.shopping
 
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.Surface
+import androidx.compose.material3.TextField
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import fr.mescourses.app.ui.components.PageTitle
+import fr.mescourses.app.ui.components.RoundIconButton
+import fr.mescourses.app.ui.components.WhiteCard
+import fr.mescourses.app.ui.theme.Cuisine
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -14,10 +40,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -211,6 +234,7 @@ fun ShoppingListScreen(onOpenSettings: () -> Unit, onSendToCart: () -> Unit) {
     val lines by vm.lines.collectAsStateWithLifecycle()
     var input by remember { mutableStateOf("") }
     var editing by remember { mutableStateOf<ShoppingLine?>(null) }
+    var menu by remember { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val open = remember(lines) { lines.filterNot { it.checked } }
@@ -219,7 +243,7 @@ fun ShoppingListScreen(onOpenSettings: () -> Unit, onSendToCart: () -> Unit) {
     val pantry = vm.currentPantry()
     val pantryCount = remember(open, pantry) { open.count { vm.isPantry(it.label) } }
     val done = taken.size
-    val progress by animateFloatAsState(if (lines.isEmpty()) 0f else done.toFloat() / lines.size, label = "progress")
+    val recipes = remember(lines) { lines.flatMap { l -> l.origin?.split(", ").orEmpty() }.toSet().size }
 
     fun undoable(message: String, removed: List<ShoppingItem>) = vm.offerRestore(message, removed)
 
@@ -230,42 +254,67 @@ fun ShoppingListScreen(onOpenSettings: () -> Unit, onSendToCart: () -> Unit) {
         vm.offerUncheck(message, target)
     }
 
-    ScreenScaffold(
-        title = "Liste de courses",
-        onOpenSettings = onOpenSettings,
-        snackbar = snackbar,
-        actions = {
-            if (open.isNotEmpty()) IconButton(onClick = { vm.sendToCart(); onSendToCart() }) {
-                Icon(Icons.Filled.ShoppingCart, "Envoyer au panier")
-            }
-            // Produits du placard restés dans la liste (ajoutés avant le filtre, ou à la main).
-            if (pantryCount > 0) IconButton(onClick = { scope.launch { undoable("$pantryCount produit(s) du placard retiré(s)", vm.removePantry()) } }) {
-                Icon(Icons.Filled.Kitchen, "Retirer les produits du placard")
-            }
-            if (open.isNotEmpty()) IconButton(onClick = { checkAll(open, "${open.size} article(s) coché(s)") }) {
-                Icon(Icons.Filled.DoneAll, "Tout cocher")
-            }
-            if (done > 0) IconButton(onClick = { scope.launch { undoable("$done article(s) retiré(s)", vm.clearChecked()) } }) {
-                Icon(Icons.Filled.DeleteSweep, "Retirer les articles pris")
+    fun submit() { vm.add(input); input = "" }
+
+    Scaffold(
+        contentWindowInsets = WindowInsets(0),
+        snackbarHost = { SnackbarHost(snackbar) },
+        topBar = {
+            PageTitle(
+                "Liste de courses",
+                subtitle = if (lines.isEmpty()) null else listOfNotNull(
+                    "${lines.size} article${if (lines.size > 1) "s" else ""}",
+                    recipes.takeIf { it > 0 }?.let { "$it recette${if (it > 1) "s" else ""}" },
+                ).joinToString(" · "),
+            ) {
+                RoundIconButton(Icons.Filled.Settings, "Réglages", onOpenSettings)
+                if (lines.isNotEmpty()) Box {
+                    RoundIconButton(Icons.Filled.MoreHoriz, "Plus d'actions", { menu = true })
+                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        if (open.isNotEmpty()) DropdownMenuItem(
+                            text = { Text("Tout cocher") }, leadingIcon = { Icon(Icons.Filled.DoneAll, null) },
+                            onClick = { menu = false; checkAll(open, "${open.size} article(s) coché(s)") },
+                        )
+                        if (pantryCount > 0) DropdownMenuItem(
+                            text = { Text("Retirer les produits du placard ($pantryCount)") }, leadingIcon = { Icon(Icons.Filled.Kitchen, null) },
+                            onClick = { menu = false; scope.launch { undoable("$pantryCount produit(s) du placard retiré(s)", vm.removePantry()) } },
+                        )
+                        if (done > 0) DropdownMenuItem(
+                            text = { Text("Retirer les articles pris ($done)") }, leadingIcon = { Icon(Icons.Filled.DeleteSweep, null) },
+                            onClick = { menu = false; scope.launch { undoable("$done article(s) retiré(s)", vm.clearChecked()) } },
+                        )
+                    }
+                }
             }
         },
         bottomBar = {
-            BottomActionBar {
-                OutlinedTextField(
-                    value = input,
-                    onValueChange = { input = it },
-                    placeholder = { Text("Ajouter : lessive, 2 kg de pommes…") },
-                    singleLine = true,
-                    shape = RoundedCornerShape(28.dp),
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
-                    ),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(onDone = { vm.add(input); input = "" }),
-                    modifier = Modifier.weight(1f),
-                )
-                FilledIconButton(onClick = { vm.add(input); input = "" }, enabled = input.isNotBlank()) { Icon(Icons.Filled.Add, "Ajouter") }
+            // Saisie rapide fixée en bas, au-dessus du clavier.
+            Box(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).imePadding().padding(horizontal = 16.dp, vertical = 10.dp)) {
+                Surface(shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.surfaceContainerLowest, shadowElevation = 3.dp) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TextField(
+                            value = input,
+                            onValueChange = { input = it },
+                            placeholder = { Text("Ajouter : lessive, 2 kg de pommes…", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                            keyboardActions = KeyboardActions(onDone = { submit() }),
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent,
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent,
+                            ),
+                            modifier = Modifier.weight(1f),
+                        )
+                        RoundIconButton(
+                            Icons.Filled.Add, "Ajouter", { submit() },
+                            container = MaterialTheme.colorScheme.onSurface, tint = MaterialTheme.colorScheme.surface,
+                            size = 42.dp, enabled = input.isNotBlank(),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                    }
+                }
             }
         },
     ) { padding ->
@@ -273,57 +322,55 @@ fun ShoppingListScreen(onOpenSettings: () -> Unit, onSendToCart: () -> Unit) {
             Box(Modifier.padding(padding)) {
                 EmptyState("🧺", "Ta liste est vide", "Valide un menu, ajoute une recette, ou tape un article en bas de l'écran.")
             }
-            return@ScreenScaffold
+            return@Scaffold
         }
         LazyColumn(
             Modifier.padding(padding).fillMaxSize(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            item {
-                SectionCard {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("$done / ${lines.size} dans le panier", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                        if (done == lines.size) Text("🎉")
-                    }
-                    LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(50)))
+            item(key = "progress") {
+                ProgressBanner(done = done, total = lines.size, onCart = if (open.isNotEmpty()) ({ vm.sendToCart(); onSendToCart() }) else null)
+            }
+            if (pantryCount > 0) item(key = "pantry") {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(Icons.Filled.Kitchen, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        "$pantryCount produit${if (pantryCount > 1) "s" else ""} du placard dans la liste",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = { scope.launch { undoable("$pantryCount produit(s) du placard retiré(s)", vm.removePantry()) } }) { Text("Retirer") }
                 }
             }
             grouped.forEach { (aisle, group) ->
-                item(key = "h-${aisle.name}") {
-                    Row(Modifier.padding(top = 6.dp).animateItem(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            "${aisle.emoji}  ${aisle.label}",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.weight(1f),
-                        )
-                        // Coche tout le rayon d'un coup.
-                        TextButton(
-                            onClick = { checkAll(group, "${aisle.label} : ${group.size} article(s) coché(s)") },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                        ) {
-                            Icon(Icons.Filled.DoneAll, null, Modifier.size(18.dp))
-                            Text("Tout cocher", Modifier.padding(start = 4.dp))
-                        }
-                    }
-                }
-                items(group, key = { it.key }) { line ->
-                    ShoppingRow(line, onToggle = { vm.toggle(line) }, onEdit = { editing = line }, modifier = Modifier.animateItem())
-                }
-            }
-            if (taken.isNotEmpty()) {
-                item(key = "h-done") {
-                    Text(
-                        "✅  Déjà pris",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 14.dp, bottom = 2.dp).animateItem(),
+                item(key = "a-${aisle.name}") {
+                    AisleCard(
+                        title = aisle.label,
+                        dot = aisleColor(aisle.ordinal),
+                        lines = group,
+                        onCheckAll = { checkAll(group, "${aisle.label} : ${group.size} article(s) coché(s)") },
+                        onToggle = vm::toggle,
+                        onEdit = { editing = it },
+                        modifier = Modifier.animateItem(),
                     )
                 }
-                items(taken, key = { "d-" + it.key }) { line ->
-                    ShoppingRow(line, onToggle = { vm.toggle(line) }, onEdit = { editing = line }, modifier = Modifier.animateItem())
-                }
+            }
+            if (taken.isNotEmpty()) item(key = "taken") {
+                AisleCard(
+                    title = "Déjà pris",
+                    dot = MaterialTheme.colorScheme.outlineVariant,
+                    lines = taken,
+                    onCheckAll = null,
+                    onToggle = vm::toggle,
+                    onEdit = { editing = it },
+                    modifier = Modifier.animateItem(),
+                )
             }
         }
     }
@@ -338,6 +385,80 @@ fun ShoppingListScreen(onOpenSettings: () -> Unit, onSendToCart: () -> Unit) {
                 undoable("« ${line.label} » supprimé", line.sources)
             },
         )
+    }
+}
+
+private val AISLE_COLORS = listOf(Color(0xFFCDE7A6), Color(0xFFFDE7B0), Color(0xFFF1D9C9), Color(0xFFDDE7F3), Color(0xFFF6C9A0), Color(0xFFEDE3F5))
+private fun aisleColor(i: Int) = AISLE_COLORS[i % AISLE_COLORS.size]
+
+/** Bandeau tomate : anneau d'avancement (articles pris) et accès au panier drive. */
+@Composable
+private fun ProgressBanner(done: Int, total: Int, onCart: (() -> Unit)?) {
+    val progress by animateFloatAsState(if (total == 0) 0f else done.toFloat() / total, label = "progress")
+    val left = total - done
+    Surface(
+        onClick = { onCart?.invoke() },
+        enabled = onCart != null,
+        shape = RoundedCornerShape(22.dp),
+        color = if (left == 0) Cuisine.Basil else MaterialTheme.colorScheme.primary,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        val fg = if (left == 0) Cuisine.Coffee else MaterialTheme.colorScheme.onPrimary
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Box(Modifier.size(56.dp), contentAlignment = Alignment.Center) {
+                Canvas(Modifier.fillMaxSize().padding(3.dp)) {
+                    val stroke = Stroke(width = 6.dp.toPx(), cap = StrokeCap.Round)
+                    drawArc(fg.copy(alpha = 0.3f), 0f, 360f, false, style = stroke)
+                    drawArc(fg, -90f, 360f * progress, false, style = stroke)
+                }
+                Text("$done", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = fg)
+            }
+            Column(Modifier.weight(1f)) {
+                Text(
+                    if (left == 0) "Tout est pris 🎉" else "$left à prendre",
+                    style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = fg,
+                )
+                Text(
+                    if (left == 0) "$total article${if (total > 1) "s" else ""} dans le panier"
+                    else "Ou fais-toi livrer : remplir le panier drive",
+                    style = MaterialTheme.typography.bodySmall, color = fg.copy(alpha = 0.9f),
+                )
+            }
+            if (onCart != null) Box(Modifier.size(40.dp).clip(CircleShape).background(Color.White), contentAlignment = Alignment.Center) {
+                Icon(Icons.Filled.ShoppingCart, "Remplir le panier drive", tint = Cuisine.Tomato, modifier = Modifier.size(20.dp))
+            }
+        }
+    }
+}
+
+/** Un rayon en carte blanche : pastille de couleur, nom, compteur, « tout cocher » ; puis ses articles. */
+@Composable
+private fun AisleCard(
+    title: String,
+    dot: Color,
+    lines: List<ShoppingLine>,
+    onCheckAll: (() -> Unit)?,
+    onToggle: (ShoppingLine) -> Unit,
+    onEdit: (ShoppingLine) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    WhiteCard(modifier) {
+        Row(Modifier.padding(start = 14.dp, end = 4.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(10.dp).clip(CircleShape).background(dot))
+            Text(
+                title.uppercase(),
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.sp,
+                modifier = Modifier.weight(1f).padding(start = 10.dp),
+            )
+            Text("${lines.size}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (onCheckAll != null) IconButton(onClick = onCheckAll) {
+                Icon(Icons.Filled.DoneAll, "Tout cocher : $title", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else Spacer(Modifier.size(width = 12.dp, height = 48.dp))
+        }
+        lines.forEach { line -> ShoppingRow(line, onToggle = { onToggle(line) }, onEdit = { onEdit(line) }) }
+        Spacer(Modifier.height(6.dp))
     }
 }
 
@@ -403,34 +524,43 @@ private fun EditItemSheet(line: ShoppingLine, onDismiss: () -> Unit, onSave: (St
 
 @Composable
 private fun ShoppingRow(line: ShoppingLine, onToggle: () -> Unit, onEdit: () -> Unit, modifier: Modifier = Modifier) {
-        Row(
-            modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium)
-                .background(MaterialTheme.colorScheme.surfaceContainerLowest)
-                .clickable(onClick = onEdit)
-                .padding(end = 14.dp, top = 4.dp, bottom = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
+    Row(
+        modifier.fillMaxWidth().clickable(onClick = onEdit).padding(horizontal = 14.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        // Grande case ronde : un toucher coche, le reste de la ligne ouvre la modification.
+        Box(
+            Modifier.size(40.dp).clip(CircleShape).clickable(onClick = onToggle),
+            contentAlignment = Alignment.Center,
         ) {
-            Checkbox(checked = line.checked, onCheckedChange = { onToggle() })
-            Column(Modifier.weight(1f)) {
-                Text(
-                    line.label,
-                    style = MaterialTheme.typography.bodyLarge,
-                    textDecoration = if (line.checked) TextDecoration.LineThrough else null,
-                    color = if (line.checked) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
-                )
-                line.origin?.let {
-                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-                }
-            }
-            if (line.quantity.isNotBlank()) {
-                Text(
-                    line.quantity,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                    modifier = Modifier.clip(RoundedCornerShape(50)).background(MaterialTheme.colorScheme.secondaryContainer)
-                        .padding(horizontal = 10.dp, vertical = 4.dp),
-                    fontSize = 13.sp,
-                )
+            Box(
+                Modifier.size(26.dp).clip(CircleShape).then(
+                    if (line.checked) Modifier.background(MaterialTheme.colorScheme.onSurface)
+                    else Modifier.border(2.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.6f), CircleShape),
+                ),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (line.checked) Icon(Icons.Filled.Check, "Pris", tint = MaterialTheme.colorScheme.surface, modifier = Modifier.size(16.dp))
             }
         }
+        Column(Modifier.weight(1f)) {
+            Text(
+                line.label,
+                style = MaterialTheme.typography.bodyLarge,
+                textDecoration = if (line.checked) TextDecoration.LineThrough else null,
+                color = if (line.checked) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+            )
+            line.origin?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        if (line.quantity.isNotBlank()) {
+            Text(
+                line.quantity,
+                style = MaterialTheme.typography.labelLarge,
+                color = if (line.checked) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+            )
+        }
+    }
 }

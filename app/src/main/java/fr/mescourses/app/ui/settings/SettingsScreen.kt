@@ -2,11 +2,29 @@
 
 package fr.mescourses.app.ui.settings
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Kitchen
+import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.Storefront
+import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import fr.mescourses.app.ui.components.GroupLabel
+import fr.mescourses.app.ui.components.NavRow
+import fr.mescourses.app.ui.components.RowDivider
+import fr.mescourses.app.ui.components.WhiteCard
+import fr.mescourses.app.ui.theme.Cuisine
 import android.net.Uri
 import fr.mescourses.app.ui.components.BusyBar
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CardDefaults
@@ -147,22 +165,53 @@ fun SettingsScreen(onBack: () -> Unit, onLogin: (Retailer) -> Unit, onChooseStor
     var versionTaps by remember { mutableStateOf(0) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(vm::import) }
 
-    ScreenScaffold(title = "Réglages", onBack = onBack) { padding ->
+    var page by rememberSaveable { mutableStateOf<String?>(null) }
+    BackHandler(enabled = page != null) { page = null }
+    ScreenScaffold(
+        title = PAGES[page] ?: "Réglages",
+        onBack = { if (page != null) page = null else onBack() },
+    ) { padding ->
         Column(
-            Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp).navigationBarsPadding(),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(top = 4.dp, bottom = 24.dp).navigationBarsPadding(),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            SectionCard {
-                SectionHeader("Assistant local", emoji = "🤖")
-                val freeGb by produceState<Double?>(null, installed) {
-                    value = withContext(Dispatchers.IO) { vm.c.models.freeSpaceGb() }
+            val catalog by vm.c.catalogSync.status.collectAsStateWithLifecycle()
+            val update by vm.c.appUpdater.status.collectAsStateWithLifecycle()
+            val modelStatus by vm.c.model.status.collectAsStateWithLifecycle()
+            when (page) {
+                null -> {
+                    SettingsHome(
+                        s = s,
+                        modelStatus = modelStatus,
+                        catalog = catalog,
+                        update = update,
+                        sessions = Retailer.entries.associateWith { r -> vm.session(r).collectAsState().value },
+                        onOpen = { page = it },
+                    )
+
+                    testResult?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+                    Text(
+                        "Mes courses · version 0.3",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.fillMaxWidth().clickable {
+                            versionTaps++
+                            if (versionTaps >= 7) { versionTaps = 0; onDebug() }
+                        }.padding(8.dp),
+                    )
                 }
+                "chef" -> {
+                    val freeGb by produceState<Double?>(null, installed) {
+                        value = withContext(Dispatchers.IO) { vm.c.models.freeSpaceGb() }
+                    }
+                    ChefHero(modelStatus, freeGb)
+                    SectionCard {
+
                 Text(
                     "Il tourne entièrement sur ton téléphone (LiteRT-LM, GPU Adreno)." + (freeGb?.let { " Espace libre : %.1f Go.".format(it) } ?: ""),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                val modelStatus by vm.c.model.status.collectAsStateWithLifecycle()
                 if (installed.isNotEmpty()) when (val m = modelStatus) {
                     is ModelStatus.Ready -> StatChip("🤖 Chef actif · ${m.modelName} · ${m.backend}")
                     ModelStatus.Loading -> Text("Le chef s'active…", style = MaterialTheme.typography.bodyMedium)
@@ -236,10 +285,13 @@ fun SettingsScreen(onBack: () -> Unit, onLogin: (Retailer) -> Unit, onChooseStor
                     }
                 }
                 Field("Jeton Hugging Face (si le modèle l'exige)", s.hfToken, secret = true) { v -> vm.update { it.copy(hfToken = v) } }
-            }
+            
+                    }
+                    GroupLabel("Recherche par le sens")
+                    fr.mescourses.app.ui.catalog.SemanticSearchCard()
+                }
+                "foyer" -> SectionCard {
 
-            SectionCard {
-                SectionHeader("Mon foyer", emoji = "👨‍👩‍👧")
                 PillStepper("🧑", "Adultes par repas", s.householdSize, { n -> vm.update { it.copy(householdSize = n.coerceIn(0, 20)) } })
                 PillStepper("🧒", "Enfants par repas", s.children, { n -> vm.update { it.copy(children = n.coerceIn(0, 20)) } })
                 PillStepper("🥗", "Entrées par menu", s.starters, { n -> vm.update { it.copy(starters = n.coerceIn(0, 21)) } }, min = 0, max = 21)
@@ -253,10 +305,10 @@ fun SettingsScreen(onBack: () -> Unit, onLogin: (Retailer) -> Unit, onChooseStor
                     steps = 14,
                 )
                 Field("Régime, allergies, goûts, budget…", s.preferences, lines = 3) { v -> vm.update { it.copy(preferences = v) } }
-            }
+            
+                }
+                "placard" -> SectionCard {
 
-            SectionCard {
-                SectionHeader("Toujours dans mon placard", emoji = "🧂")
                 Text(
                     "Ces produits ne sont jamais ajoutés à la liste de courses depuis une recette. Touche-en un pour le retirer " +
                         "(tu l'achèteras), ou ajoute ce que tu as toujours chez toi.",
@@ -293,10 +345,10 @@ fun SettingsScreen(onBack: () -> Unit, onLogin: (Retailer) -> Unit, onChooseStor
                     ) { Text("Ajouter") }
                 }
                 if (s.pantry.isNotEmpty()) TextButton(onClick = { vm.update { it.copy(pantry = "") } }) { Text("Revenir à la liste par défaut") }
-            }
+            
+                }
+                "drives" -> SectionCard {
 
-            SectionCard {
-                SectionHeader("Mes drives", emoji = "🛒")
                 Text("Enseigne préférée", style = MaterialTheme.typography.bodyLarge)
                 Text(
                     "Utilisée par défaut pour le panier et l'assistant. Tu peux en changer pour un panier, ou comparer les prix, depuis l'écran Panier.",
@@ -335,10 +387,10 @@ fun SettingsScreen(onBack: () -> Unit, onLogin: (Retailer) -> Unit, onChooseStor
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-            }
-            val catalog by vm.c.catalogSync.status.collectAsStateWithLifecycle()
-            SectionCard {
-                SectionHeader("Bases de recettes", emoji = "📚")
+            
+                }
+                "bases" -> SectionCard {
+
                 Text(
                     if (catalog.count == 0) "Aucune base téléchargée : Découvrir et le menu cherchent sur les sites."
                     else "%,d recettes sur le téléphone (%d base%s). Découvrir et le menu y cherchent sans réseau.".format(
@@ -370,10 +422,10 @@ fun SettingsScreen(onBack: () -> Unit, onLogin: (Retailer) -> Unit, onChooseStor
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-            }
-            val update by vm.c.appUpdater.status.collectAsStateWithLifecycle()
-            SectionCard {
-                SectionHeader("Mise à jour de l'appli", emoji = "⬆️")
+            
+                }
+                "maj" -> SectionCard {
+
                 Text(
                     if (update.updateAvailable) "Nouvelle version disponible (build ${update.available}, installée : ${update.installed})."
                     else "Version installée : build ${update.installed}.",
@@ -394,17 +446,10 @@ fun SettingsScreen(onBack: () -> Unit, onLogin: (Retailer) -> Unit, onChooseStor
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            
+                }
             }
-            testResult?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
-            Text(
-                "Mes courses · version 0.3",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.fillMaxWidth().clickable {
-                    versionTaps++
-                    if (versionTaps >= 7) { versionTaps = 0; onDebug() }
-                }.padding(8.dp),
-            )
+
         }
     }
 }
@@ -441,4 +486,110 @@ private fun Field(label: String, value: String, secret: Boolean = false, number:
         shape = RoundedCornerShape(16.dp),
         modifier = Modifier.fillMaxWidth(),
     )
+}
+
+/** Titres des sous-pages des Réglages (null = accueil). */
+private val PAGES = mapOf(
+    "chef" to "Le chef",
+    "foyer" to "Mon foyer",
+    "placard" to "Mon placard",
+    "drives" to "Mes drives",
+    "bases" to "Bases de recettes",
+    "maj" to "Mise à jour",
+)
+
+private val Ok = Color(0xFF5C9A2E)
+private val Warn = Color(0xFFE0A21B)
+
+/** Accueil des Réglages : une ligne par section, avec sa valeur actuelle et un point d'état. */
+@Composable
+private fun SettingsHome(
+    s: fr.mescourses.app.data.Settings,
+    modelStatus: ModelStatus,
+    catalog: fr.mescourses.app.data.CatalogStatus,
+    update: fr.mescourses.app.data.UpdateStatus,
+    sessions: Map<Retailer, SessionState>,
+    onOpen: (String) -> Unit,
+) {
+    fun plural(n: Int, word: String) = "$n $word" + if (n > 1) "s" else ""
+    GroupLabel("Cuisine")
+    WhiteCard {
+        NavRow(
+            Icons.Filled.People, Cuisine.SaffronLight, "Mon foyer",
+            listOfNotNull(
+                plural(s.householdSize, "adulte"),
+                s.children.takeIf { it > 0 }?.let { plural(it, "enfant") },
+                plural(s.meals, "plat") + " par menu",
+            ).joinToString(" · "),
+            { onOpen("foyer") },
+        )
+        RowDivider()
+        NavRow(Icons.Filled.Kitchen, Cuisine.Peach, "Toujours dans mon placard", plural(s.pantryList().size, "produit") + " jamais achetés", { onOpen("placard") })
+        RowDivider()
+        val (chefText, chefDot) = when (modelStatus) {
+            is ModelStatus.Ready -> "${modelStatus.modelName} · prêt (${modelStatus.backend})" to Ok
+            is ModelStatus.Sleeping -> "${modelStatus.modelName} · en veille" to Ok
+            ModelStatus.Loading -> "S'active…" to Warn
+            is ModelStatus.Failed -> "Erreur : à réactiver" to MaterialTheme.colorScheme.error
+            ModelStatus.Absent -> "À installer" to Warn
+        }
+        NavRow(Icons.Filled.AutoAwesome, Color(0xFFF6D5C9), "Le chef", chefText + " · recherche par le sens", { onOpen("chef") }, dot = chefDot)
+    }
+    GroupLabel("Courses")
+    WhiteCard {
+        val connected = sessions.filterValues { it == SessionState.CONNECTE }.keys
+        NavRow(
+            Icons.Filled.Storefront, Color(0xFFDDE7F3), "Mes drives",
+            "${s.preferredRetailer.label} par défaut · " + when (connected.size) {
+                0 -> "aucune enseigne connectée"
+                Retailer.entries.size -> "toutes connectées"
+                else -> connected.joinToString(", ") { it.label } + " connecté" + if (connected.size > 1) "s" else ""
+            } + if (s.preferOrganic) " · bio" else "",
+            { onOpen("drives") },
+            dot = if (s.preferredRetailer in connected) Ok else Warn,
+        )
+    }
+    GroupLabel("Données")
+    WhiteCard {
+        NavRow(
+            Icons.Filled.Storage, Color(0xFFEDE3F5), "Bases de recettes",
+            if (catalog.count == 0) "Aucune base : recherche en ligne"
+            else "%,d recettes · %s".format(java.util.Locale.FRANCE, catalog.count, plural(catalog.installed.size, "base")),
+            { onOpen("bases") },
+            dot = if (catalog.working != null) Warn else null,
+        )
+        RowDivider()
+        NavRow(
+            Icons.Filled.SystemUpdate, MaterialTheme.colorScheme.surfaceContainerHigh, "Mise à jour de l'appli",
+            if (update.updateAvailable) "Nouvelle version disponible" else "Build ${update.installed} · à jour",
+            { onOpen("maj") },
+            dot = if (update.updateAvailable) MaterialTheme.colorScheme.primary else null,
+        )
+    }
+}
+
+/** Carte d'état du chef en tête de sa sous-page. */
+@Composable
+private fun ChefHero(status: ModelStatus, freeGb: Double?) {
+    Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.primary, modifier = Modifier.fillMaxWidth()) {
+        Box {
+            Box(Modifier.align(Alignment.TopEnd).offset(x = 30.dp, y = (-30).dp).size(120.dp).clip(CircleShape).background(Color(0xFFE2603F)))
+            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("SUR TON TÉLÉPHONE", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
+                Text(
+                    when (status) {
+                        is ModelStatus.Ready, is ModelStatus.Sleeping -> "Le chef est prêt"
+                        ModelStatus.Loading -> "Le chef s'active…"
+                        is ModelStatus.Failed -> "Le chef ne démarre pas"
+                        ModelStatus.Absent -> "Installe ton chef"
+                    },
+                    style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary,
+                )
+                Text(
+                    "Rien ne quitte l'appareil." + (freeGb?.let { " %.1f Go libres.".format(java.util.Locale.FRANCE, it) } ?: ""),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.92f),
+                )
+            }
+        }
+    }
 }

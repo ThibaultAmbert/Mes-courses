@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -22,6 +21,7 @@ import androidx.compose.ui.text.style.TextOverflow
 @Composable
 fun ScreenScaffold(
     title: String,
+    subtitle: String? = null,
     onBack: (() -> Unit)? = null,
     onOpenSettings: (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
@@ -33,18 +33,13 @@ fun ScreenScaffold(
     Scaffold(
         contentWindowInsets = WindowInsets(0),
         topBar = {
-            TopAppBar(
-                title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                navigationIcon = {
-                    if (onBack != null) IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Retour")
-                    }
-                },
+            fr.mescourses.app.ui.components.PageTitle(
+                title = title,
+                subtitle = subtitle,
+                onBack = onBack,
                 actions = {
                     actions()
-                    if (onOpenSettings != null) IconButton(onClick = onOpenSettings) {
-                        Icon(Icons.Filled.Settings, contentDescription = "Réglages")
-                    }
+                    if (onOpenSettings != null) fr.mescourses.app.ui.components.RoundIconButton(Icons.Filled.Settings, "Réglages", onOpenSettings)
                 },
             )
         },
