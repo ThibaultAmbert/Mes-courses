@@ -2,6 +2,15 @@
 
 package fr.mescourses.app.ui.discover
 
+import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Star
+import fr.mescourses.app.ui.common.RecipeFiche
+import fr.mescourses.app.ui.common.RecipeFicheMessage
+import fr.mescourses.app.ui.components.CtaButton
+import fr.mescourses.app.ui.components.Tag
+import fr.mescourses.app.ui.components.WhiteCard
+import fr.mescourses.app.ui.theme.Cuisine
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.ui.graphics.Color
 import fr.mescourses.app.ui.components.FilterPill
@@ -513,118 +522,64 @@ fun RecipePreviewScreen(url: String, onBack: () -> Unit, onOpenRecipe: (Long) ->
     val book = inBook[RecipeSites.normalize(url)]
     val siteName = vm.site?.name ?: RecipeSites.hostOf(url) ?: "le site"
 
-    ScreenScaffold(
-        title = (state as? RecipePreviewViewModel.State.Loaded)?.recipe?.title ?: "Aperçu",
-        onBack = onBack,
-        snackbar = snackbar,
-        actions = { IconButton(onClick = { onBrowse(url) }) { Icon(Icons.AutoMirrored.Filled.OpenInNew, "Voir sur $siteName") } },
-        bottomBar = {
-            val r = (state as? RecipePreviewViewModel.State.Loaded)?.recipe
-            if (r != null) BottomActionBar {
-                if (book?.status == RecipeStatus.FAVORI) {
-                    Button(onClick = { onOpenRecipe(book.id) }, modifier = Modifier.weight(1f)) { Text("⭐ Dans tes favoris · Ouvrir") }
-                } else {
-                    Button(onClick = { vm.addFavorite(r) }, modifier = Modifier.weight(1f)) { Text("⭐ Ajouter aux favoris") }
-                }
-            }
-        },
-    ) { padding ->
-        when (val s = state) {
-            RecipePreviewViewModel.State.Loading -> Column(
-                Modifier.padding(padding).fillMaxSize(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                Spinner(Modifier.size(40.dp))
-                Text("Lecture de la recette sur $siteName…", Modifier.padding(top = 12.dp))
-            }
-            is RecipePreviewViewModel.State.Failed -> Column(Modifier.padding(padding).fillMaxSize()) {
-                EmptyState("😕", "Recette illisible", s.message, actionLabel = "Ouvrir la page dans l'app", onAction = { onBrowse(url) })
-                TextButton(onClick = { vm.load() }, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Réessayer") }
-            }
-            is RecipePreviewViewModel.State.Loaded -> PreviewBody(
-                r = s.recipe,
-                siteName = siteName,
-                offline = offline,
+    when (val s = state) {
+        RecipePreviewViewModel.State.Loading -> RecipeFicheMessage("Recette", onBack) {
+            Spinner(Modifier.size(40.dp))
+            Text("Lecture de la recette sur $siteName…", Modifier.padding(top = 12.dp))
+        }
+        is RecipePreviewViewModel.State.Failed -> RecipeFicheMessage("Recette", onBack) {
+            EmptyState("😕", "Recette illisible", s.message, actionLabel = "Ouvrir la page dans l'app", onAction = { onBrowse(url) })
+            TextButton(onClick = { vm.load() }) { Text("Réessayer") }
+        }
+        is RecipePreviewViewModel.State.Loaded -> {
+            val r = s.recipe
+            val favorite = book?.status == RecipeStatus.FAVORI
+            RecipeFiche(
+                r = r,
                 portions = portions,
                 childFactor = vm.childFactor(),
-                onPortions = { vm.setPortions(it) },
-                modifier = Modifier.padding(padding),
-                onMenu = { vm.addToMenu(s.recipe) },
-                onList = { vm.addToList(s.recipe) },
-                onSite = { onBrowse(url) },
-                chefInstalled = chefStatus != ModelStatus.Absent,
-                onGenerate = { vm.generateSteps(s.recipe, onOpenRecipe) },
-            )
-        }
-    }
-}
-
-@Composable
-private fun PreviewBody(r: Recipe, siteName: String, offline: Boolean, portions: Portions, childFactor: Double, onPortions: (Portions) -> Unit, modifier: Modifier, onMenu: () -> Unit, onList: () -> Unit, onSite: () -> Unit, chefInstalled: Boolean, onGenerate: () -> Unit) {
-    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        DishArt(
-            r.title, r.ingredients.map { it.name }, r.imageUrl,
-            Modifier.fillMaxWidth().height(200.dp).padding(horizontal = 16.dp).clip(MaterialTheme.shapes.extraLarge),
-            emojiSize = 84,
-        )
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            if (offline) InfoBanner("📴", "Hors ligne : informations déjà connues (ingrédients, temps). Les étapes seront lues sur le site dès que tu auras internet.")
-            Text(r.title, style = MaterialTheme.typography.headlineSmall)
-            Text("sur $siteName", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.secondary)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                fr.mescourses.app.ui.common.recipeCourse(r).takeIf { it != fr.mescourses.core.catalog.Course.AUTRE }?.let { StatChip(it.label, emphasized = true) }
-                r.prepMinutes?.let { StatChip("🔪 $it min") }
-                r.cookMinutes?.let { StatChip("🔥 $it min") }
-                fr.mescourses.app.ui.components.ServingsChip("👥 ${r.servings} pers.", r.servings, portions)
-                StatChip("🧺 ${r.ingredients.size} ingrédients")
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onMenu, modifier = Modifier.weight(1f)) { Text("🍽 Au menu") }
-                OutlinedButton(onClick = onList, modifier = Modifier.weight(1f)) { Text("📝 À la liste") }
-            }
-            SectionCard {
-                Text("Pour combien ?", style = MaterialTheme.typography.titleSmall)
-                PillStepper("🧑", "Adultes", portions.adults, { onPortions(portions.copy(adults = it.coerceAtLeast(0))) })
-                PillStepper("🧒", "Enfants", portions.children, { onPortions(portions.copy(children = it.coerceAtLeast(0))) })
-            }
-            SectionHeader("Ingrédients", emoji = "🧺")
-            // Quantités recalculées pour le nombre de personnes choisi (celui des Réglages au départ).
-            ShoppingListMerger.scale(r, portions.equivalent(childFactor)).forEach { ing ->
-                Row(Modifier.fillMaxWidth()) {
-                    Text("•", Modifier.padding(end = 8.dp), color = MaterialTheme.colorScheme.primary)
-                    val q = ing.quantity?.let { ShoppingListMerger.formatNumber(it) }
-                    Text(
-                        if (q == null && ing.unit == null) ing.raw else listOfNotNull(q, ing.unit, ing.name).joinToString(" "),
-                        style = MaterialTheme.typography.bodyLarge,
+                onPortions = vm::setPortions,
+                onBack = onBack,
+                snackbar = snackbar,
+                onList = { vm.addToList(r) },
+                onMenu = { vm.addToMenu(r) },
+                menuEnabled = book?.status != RecipeStatus.BANNI,
+                siteName = siteName,
+                // Déjà en favori : l'étoile ouvre la recette du livre (modifiable) ; sinon elle l'y ajoute.
+                favorite = favorite,
+                onFavorite = { if (favorite && book != null) onOpenRecipe(book.id) else vm.addFavorite(r) },
+                menuItems = { close ->
+                    if (book != null) DropdownMenuItem(
+                        text = { Text("Ouvrir dans Mes recettes") }, leadingIcon = { Icon(Icons.AutoMirrored.Filled.MenuBook, null) },
+                        onClick = { close(); onOpenRecipe(book.id) },
                     )
-                }
-            }
-            if (r.steps.isNotEmpty()) {
-                SectionHeader("Préparation", emoji = "👩‍🍳")
-                r.steps.forEachIndexed { i, step ->
-                    Row {
-                        Text("${i + 1}.", Modifier.padding(end = 8.dp), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
-                        Text(step, style = MaterialTheme.typography.bodyMedium)
+                    DropdownMenuItem(
+                        text = { Text("Voir sur $siteName") }, leadingIcon = { Icon(Icons.AutoMirrored.Filled.OpenInNew, null) },
+                        onClick = { close(); onBrowse(url) },
+                    )
+                },
+                extraTags = {
+                    if (favorite) Tag("Dans tes favoris", Cuisine.BasilLight, icon = Icons.Filled.Star, color = Cuisine.Coffee)
+                    if (book?.status == RecipeStatus.BANNI) Tag("Exclue", MaterialTheme.colorScheme.errorContainer, color = MaterialTheme.colorScheme.onErrorContainer)
+                },
+                banner = {
+                    if (offline) InfoBanner("📴", "Hors ligne : informations déjà connues (ingrédients, temps). Les étapes seront lues sur le site dès que tu auras internet.")
+                },
+                emptySteps = {
+                    val chefInstalled = chefStatus != ModelStatus.Absent
+                    WhiteCard(padding = PaddingValues(16.dp)) {
+                        Text(
+                            if (chefInstalled) "Pas d'étapes lisibles sur $siteName. Le chef peut les écrire : la recette est d'abord ajoutée à tes favoris."
+                            else "Pas d'étapes lisibles sur $siteName. Installe le chef dans les Réglages pour qu'il les écrive.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        CtaButton("Écrire les étapes avec le chef", onClick = { vm.generateSteps(r, onOpenRecipe) }, icon = Icons.Filled.AutoAwesome, enabled = chefInstalled)
+                        TextButton(onClick = { onBrowse(url) }) { Text("Voir sur $siteName") }
                     }
-                }
-            }
-            if (r.steps.isEmpty()) {
-                Button(onClick = onGenerate, enabled = chefInstalled, modifier = Modifier.fillMaxWidth()) {
-                    Text("✍️ Générer les données manquantes avec le chef")
-                }
-                Text(
-                    if (chefInstalled) "Ajoute la recette à tes favoris puis le chef écrit les étapes, seulement sur ton clic."
-                    else "Installe l'assistant dans les Réglages pour l'utiliser.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            TextButton(onClick = onSite) {
-                Icon(Icons.AutoMirrored.Filled.OpenInNew, null)
-                Text("Voir sur $siteName", Modifier.padding(start = 6.dp))
-            }
-            Spacer(Modifier.height(8.dp))
+                },
+            )
         }
     }
 }

@@ -37,6 +37,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import fr.mescourses.app.ui.common.recipeCourse
+import fr.mescourses.app.ui.common.RecipeFiche
+import fr.mescourses.app.ui.common.formatMinutes
 import fr.mescourses.app.ui.components.CtaButton
 import fr.mescourses.app.ui.components.FilterPill
 import fr.mescourses.app.ui.components.NavRow
@@ -415,12 +417,6 @@ private fun RecipeCard(r: Recipe, onClick: () -> Unit, onMove: (RecipeStatus) ->
     }
 }
 
-/** 45 → « 45 min », 150 → « 2 h 30 ». */
-internal fun formatMinutes(m: Int): String = when {
-    m < 60 -> "$m min"
-    m % 60 == 0 -> "${m / 60} h"
-    else -> "${m / 60} h ${"%02d".format(m % 60)}"
-}
 
 /** Menu « Déplacer vers… » une autre liste du livre. */
 @Composable
@@ -443,162 +439,52 @@ fun RecipeDetailScreen(recipeId: Long, onBack: () -> Unit, onEdit: () -> Unit, o
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
     var confirmDelete by remember { mutableStateOf(false) }
-    var menu by remember { mutableStateOf(false) }
-    var showSteps by rememberSaveable { mutableStateOf(false) }
-    val checked = remember { mutableStateListOf<Int>() }
     LaunchedEffect(message) { message?.let { snackbar.showSnackbar(it); vm.messages.value = null } }
 
-    val r = recipe
-    Scaffold(
-        contentWindowInsets = WindowInsets(0),
-        snackbarHost = { SnackbarHost(snackbar) },
-        bottomBar = {
-            if (r != null) Row(
-                Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).navigationBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                SoftButton("À la liste", onClick = { vm.addToList(r) }, icon = Icons.AutoMirrored.Filled.PlaylistAdd)
-                CtaButton("Au menu", onClick = { vm.addToMenu(r) }, icon = Icons.Filled.Add, enabled = !r.banned, modifier = Modifier.weight(1f))
+    val r = recipe ?: return
+    RecipeFiche(
+        r = r,
+        portions = portions,
+        childFactor = vm.childFactor(),
+        onPortions = vm::setPortions,
+        onBack = onBack,
+        snackbar = snackbar,
+        onList = { vm.addToList(r) },
+        onMenu = { vm.addToMenu(r) },
+        menuEnabled = !r.banned,
+        favorite = r.favorite,
+        onFavorite = { vm.move(r, if (r.favorite) RecipeStatus.HISTORIQUE else RecipeStatus.FAVORI) },
+        menuItems = { close ->
+            DropdownMenuItem(text = { Text("Modifier") }, leadingIcon = { Icon(Icons.Filled.Edit, null) }, onClick = { close(); onEdit() })
+            DropdownMenuItem(
+                text = { Text("Envoyer au panier drive") }, leadingIcon = { Icon(Icons.Filled.ShoppingCart, null) },
+                onClick = { close(); vm.sendToCart(r); onSendToCart() },
+            )
+            if (r.banned) DropdownMenuItem(
+                text = { Text("Proposer de nouveau") }, leadingIcon = { Icon(Icons.Filled.Restore, null) },
+                onClick = { close(); vm.move(r, RecipeStatus.HISTORIQUE) },
+            ) else DropdownMenuItem(
+                text = { Text("Ne plus proposer") }, leadingIcon = { Icon(Icons.Filled.Block, null) },
+                onClick = { close(); vm.move(r, RecipeStatus.BANNI) },
+            )
+            r.sourceUrl?.let { url ->
+                DropdownMenuItem(
+                    text = { Text("Voir la recette d'origine") }, leadingIcon = { Icon(Icons.AutoMirrored.Filled.OpenInNew, null) },
+                    onClick = { close(); context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) },
+                )
             }
+            DropdownMenuItem(
+                text = { Text("Supprimer", color = MaterialTheme.colorScheme.error) },
+                leadingIcon = { Icon(Icons.Filled.DeleteOutline, null, tint = MaterialTheme.colorScheme.error) },
+                onClick = { close(); confirmDelete = true },
+            )
         },
-    ) { padding ->
-        if (r == null) return@Scaffold
-        val ingredientNames = remember(r.id, r.ingredients) { r.ingredients.map { it.name } }
-        val present = remember(r.id, r.title, ingredientNames) { PlateBalance.components(listOf(r.title) + ingredientNames) }
-        Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState())) {
-            // 1. Photo en grand, actions rondes par-dessus.
-            Box(Modifier.fillMaxWidth().height(270.dp)) {
-                DishArt(r.title, ingredientNames, r.imageUrl, Modifier.fillMaxSize(), emojiSize = 96)
-                Row(
-                    Modifier.fillMaxWidth().statusBarsPadding().padding(16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    RoundIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Retour", onBack)
-                    Spacer(Modifier.weight(1f))
-                    RoundIconButton(
-                        if (r.favorite) Icons.Filled.Star else Icons.Filled.StarBorder,
-                        if (r.favorite) "Retirer des favoris" else "Ajouter aux favoris",
-                        { vm.move(r, if (r.favorite) RecipeStatus.HISTORIQUE else RecipeStatus.FAVORI) },
-                        tint = Cuisine.Tomato,
-                    )
-                    Box {
-                        RoundIconButton(Icons.Filled.MoreHoriz, "Plus d'actions", { menu = true })
-                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                            DropdownMenuItem(text = { Text("Modifier") }, leadingIcon = { Icon(Icons.Filled.Edit, null) }, onClick = { menu = false; onEdit() })
-                            DropdownMenuItem(
-                                text = { Text("Envoyer au panier drive") }, leadingIcon = { Icon(Icons.Filled.ShoppingCart, null) },
-                                onClick = { menu = false; vm.sendToCart(r); onSendToCart() },
-                            )
-                            if (r.banned) DropdownMenuItem(
-                                text = { Text("Proposer de nouveau") }, leadingIcon = { Icon(Icons.Filled.Restore, null) },
-                                onClick = { menu = false; vm.move(r, RecipeStatus.HISTORIQUE) },
-                            ) else DropdownMenuItem(
-                                text = { Text("Ne plus proposer") }, leadingIcon = { Icon(Icons.Filled.Block, null) },
-                                onClick = { menu = false; vm.move(r, RecipeStatus.BANNI) },
-                            )
-                            r.sourceUrl?.let { url ->
-                                DropdownMenuItem(
-                                    text = { Text("Voir la recette d'origine") }, leadingIcon = { Icon(Icons.AutoMirrored.Filled.OpenInNew, null) },
-                                    onClick = { menu = false; context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) },
-                                )
-                            }
-                            DropdownMenuItem(
-                                text = { Text("Supprimer", color = MaterialTheme.colorScheme.error) },
-                                leadingIcon = { Icon(Icons.Filled.DeleteOutline, null, tint = MaterialTheme.colorScheme.error) },
-                                onClick = { menu = false; confirmDelete = true },
-                            )
-                        }
-                    }
-                }
-            }
-            // 2. Feuille crème qui chevauche la photo.
-            Column(
-                Modifier.offset(y = (-28).dp).fillMaxWidth().clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
-                    .background(MaterialTheme.colorScheme.surface).padding(start = 20.dp, end = 20.dp, top = 20.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    recipeCourse(r).takeIf { it != fr.mescourses.core.catalog.Course.AUTRE }?.let { Tag(it.label, Cuisine.SaffronLight, color = Cuisine.Coffee) }
-                    val total = (r.prepMinutes ?: 0) + (r.cookMinutes ?: 0)
-                    if (total > 0) Tag(formatMinutes(total), icon = Icons.Filled.Schedule)
-                    r.sourceUrl?.let { fr.mescourses.core.recipes.RecipeSites.forUrl(it)?.name }?.let { Tag(it) }
-                    if (r.timesCooked > 0) Tag("Cuisinée ${r.timesCooked}×", Cuisine.BasilLight, color = Cuisine.Coffee)
-                    if (r.banned) Tag("Exclue", MaterialTheme.colorScheme.errorContainer, icon = Icons.Filled.Block, color = MaterialTheme.colorScheme.onErrorContainer)
-                }
-                Text(r.title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                r.description?.let { Text(it, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PortionCard("Adultes", portions.adults, { vm.setPortions(portions.copy(adults = it.coerceAtLeast(0))) }, Modifier.weight(1f))
-                    PortionCard("Enfants", portions.children, { vm.setPortions(portions.copy(children = it.coerceAtLeast(0))) }, Modifier.weight(1f))
-                }
-                if (r.servings != portions.adults + portions.children) {
-                    Text(
-                        "Recette prévue pour ${r.servings} : les quantités sont adaptées.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                val hint = balanceHint(present)
-                if (hint != null || r.notes != null) WhiteCard(padding = PaddingValues(14.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Assiette", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-                        BalanceDots(present)
-                    }
-                    hint?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                    r.notes?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                }
-
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    FilterPill("Ingrédients", selected = !showSteps, onClick = { showSteps = false }, count = r.ingredients.size)
-                    FilterPill("Étapes", selected = showSteps, onClick = { showSteps = true }, count = r.steps.size)
-                }
-                if (!showSteps) {
-                    Column {
-                        ShoppingListMerger.scale(r, portions.equivalent(vm.childFactor())).forEachIndexed { i, ing ->
-                            val done = i in checked
-                            Row(
-                                Modifier.fillMaxWidth().clickable { if (done) checked.remove(i) else checked.add(i) }.padding(vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            ) {
-                                Box(
-                                    Modifier.size(22.dp).clip(CircleShape).then(
-                                        if (done) Modifier.background(MaterialTheme.colorScheme.onSurface)
-                                        else Modifier.border(2.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
-                                    ),
-                                    contentAlignment = Alignment.Center,
-                                ) { if (done) Icon(Icons.Filled.Check, null, tint = MaterialTheme.colorScheme.surface, modifier = Modifier.size(14.dp)) }
-                                Text(
-                                    ing.name.replaceFirstChar { it.uppercase() },
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    textDecoration = if (done) TextDecoration.LineThrough else null,
-                                    color = if (done) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                val q = listOfNotNull(ing.quantity?.let { ShoppingListMerger.formatNumber(it) }, ing.unit).joinToString(" ")
-                                if (q.isNotBlank()) Text(q, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
-                            }
-                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                        }
-                    }
-                } else {
-                    if (r.steps.isEmpty()) StepsPlaceholder(r, stepsState, modelStatus, onWrite = vm::writeSteps)
-                    r.steps.forEachIndexed { i, step ->
-                        Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Box(
-                                Modifier.size(30.dp).clip(CircleShape).background(Cuisine.SaffronLight),
-                                contentAlignment = Alignment.Center,
-                            ) { Text("${i + 1}", style = MaterialTheme.typography.labelLarge, color = Cuisine.Coffee) }
-                            Text(step, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(top = 4.dp))
-                        }
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-            }
-        }
-    }
+        extraTags = {
+            if (r.timesCooked > 0) Tag("Cuisinée ${r.timesCooked}×", Cuisine.BasilLight, color = Cuisine.Coffee)
+            if (r.banned) Tag("Exclue", MaterialTheme.colorScheme.errorContainer, icon = Icons.Filled.Block, color = MaterialTheme.colorScheme.onErrorContainer)
+        },
+        emptySteps = { StepsPlaceholder(r, stepsState, modelStatus, onWrite = vm::writeSteps) },
+    )
 
     if (confirmDelete) AlertDialog(
         onDismissRequest = { confirmDelete = false },
@@ -607,17 +493,6 @@ fun RecipeDetailScreen(recipeId: Long, onBack: () -> Unit, onEdit: () -> Unit, o
         confirmButton = { TextButton(onClick = { confirmDelete = false; vm.delete(onBack) }) { Text("Supprimer") } },
         dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Annuler") } },
     )
-}
-
-/** Compteur de convives dans une carte blanche : « Adultes  − 2 + ». */
-@Composable
-private fun PortionCard(label: String, value: Int, onChange: (Int) -> Unit, modifier: Modifier = Modifier) {
-    Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceContainerLowest, modifier = modifier) {
-        Row(Modifier.padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f), maxLines = 1)
-            RoundStepper(value, onChange, label, big = false)
-        }
-    }
 }
 
 /** Étapes absentes : récupération sur le site, écriture par le chef, ou bouton pour la demander. */
