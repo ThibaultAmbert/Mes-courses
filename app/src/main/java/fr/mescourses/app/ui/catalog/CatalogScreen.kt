@@ -82,12 +82,6 @@ fun CatalogScreen(firstRun: Boolean, onDone: () -> Unit) {
                 }
             }
             sites.forEach { id -> SiteRow(id, st, busy, onInstall = { sync.install(listOf(id)) }, onRemove = { sync.remove(id) }) }
-            EmbedderRow(
-                st = st,
-                onInstall = { sync.installEmbedder() },
-                onCancel = { sync.cancelEmbedder() },
-                onRemove = { sync.removeEmbedder(c.embedder) },
-            )
 
             st.working?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             if (busy) BusyBar(Modifier.fillMaxWidth())
@@ -150,6 +144,16 @@ private fun SiteRow(id: String, st: CatalogStatus, busy: Boolean, onInstall: () 
     )
 }
 
+/** Carte « Recherche par le sens » (modèle EmbeddingGemma), affichée dans Réglages › Le chef. */
+@Composable
+fun SemanticSearchCard() {
+    val c = appContainer()
+    val sync = c.catalogSync
+    val st by sync.status.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { sync.checkRemote() }
+    EmbedderRow(st, onInstall = { sync.installEmbedder() }, onCancel = { sync.cancelEmbedder() }, onRemove = { sync.removeEmbedder(c.embedder) })
+}
+
 @Composable
 private fun EmbedderRow(st: CatalogStatus, onInstall: () -> Unit, onCancel: () -> Unit, onRemove: () -> Unit) {
     val sizeBytes = st.embedderRemote?.bytes?.takeIf { it > 0 } ?: CatalogSync.DEFAULT_EMBEDDER_BYTES
@@ -158,7 +162,7 @@ private fun EmbedderRow(st: CatalogStatus, onInstall: () -> Unit, onCancel: () -
     SectionCard(contentPadding = 12.dp) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Column(Modifier.weight(1f)) {
-                Text("Recherche par le sens — $sizeLabel", style = MaterialTheme.typography.titleSmall)
+                Text("Recherche par le sens · $sizeLabel", style = MaterialTheme.typography.titleSmall)
                 Text(
                     when {
                         st.embedderDownloading && st.embedderTotal > 0 ->

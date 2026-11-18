@@ -2,6 +2,11 @@
 
 package fr.mescourses.app.ui.discover
 
+import androidx.compose.material.icons.filled.LocalFireDepartment
+import androidx.compose.ui.graphics.Color
+import fr.mescourses.app.ui.components.FilterPill
+import fr.mescourses.app.ui.components.RoundIconButton
+import fr.mescourses.app.ui.components.SearchBox
 import android.annotation.SuppressLint
 import fr.mescourses.app.ui.components.BusyBar
 import fr.mescourses.app.ui.components.Spinner
@@ -174,63 +179,29 @@ fun DiscoverContent(
         item(span = { GridItemSpan(2) }) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 // 1. Recherche + bouton Filtres (avec le nombre de filtres actifs).
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = query,
-                        onValueChange = { vm.query.value = it },
-                        leadingIcon = { Icon(Icons.Filled.Search, null) },
-                        trailingIcon = {
-                            if (query.isNotEmpty()) IconButton(onClick = { vm.query.value = "" }) { Icon(Icons.Filled.Close, "Effacer") }
-                        },
-                        placeholder = { Text("Un plat, un ingrédient…") },
-                        singleLine = true,
-                        shape = RoundedCornerShape(28.dp),
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                        keyboardActions = KeyboardActions(onSearch = { submit() }),
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            unfocusedIndicatorColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        ),
-                        modifier = Modifier.weight(1f),
-                    )
-                    val active = filters.size + (if (sites.isNotEmpty()) 1 else 0) + (if (sort != RecipeSort.PERTINENCE) 1 else 0)
-                    BadgedBox(badge = { if (active > 0) Badge { Text("$active") } }) {
-                        FilledTonalIconButton(onClick = { focus.clearFocus(); showFilters = true }, modifier = Modifier.size(52.dp)) {
-                            Icon(Icons.Filled.Tune, "Filtres")
-                        }
-                    }
-                }
-                // 2. « Je cherche… » : grandes tuiles par type de plat (une touche cherche, une 2ᵉ retire).
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(RecipeFilters.tiles, key = { it.name }) { f ->
-                        val selected = f in filters
-                        Surface(
-                            onClick = { focus.clearFocus(); vm.toggleFilter(f) },
-                            shape = RoundedCornerShape(18.dp),
-                            color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
-                            border = if (selected) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
-                            modifier = Modifier.size(width = 78.dp, height = 74.dp),
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                                Text(f.emoji, fontSize = 26.sp)
-                                Text(f.label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
-                            }
-                        }
-                    }
-                }
-                // 3. Filtres actifs (supprimables) et Populaires.
+                val active = filters.size + (if (sites.isNotEmpty()) 1 else 0) + (if (sort != RecipeSort.PERTINENCE) 1 else 0)
+                SearchBox(
+                    query, { vm.query.value = it }, "Un plat, un ingrédient…",
+                    onSearch = { submit() },
+                    trailing = {
+                        RoundIconButton(
+                            Icons.Filled.Tune, "Filtres", { focus.clearFocus(); showFilters = true },
+                            container = MaterialTheme.colorScheme.surfaceContainerLow, size = 38.dp, badge = active,
+                        )
+                    },
+                )
+                // 2. Accès rapide au type de plat : Tout · Entrée · Plat · Dessert (un seul à la fois).
+                CourseSwitch(filters, onPick = { f -> focus.clearFocus(); vm.toggleFilter(f) })
+                // 3. Populaires, autres types (apéritif, soupe, brunch) et filtres actifs (supprimables).
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                     item {
-                        FilterChip(selected = popular, onClick = { focus.clearFocus(); vm.togglePopular() }, label = { Text("🔥 Populaires") })
+                        FilterPill("Populaires", selected = popular, onClick = { focus.clearFocus(); vm.togglePopular() }, leading = Icons.Filled.LocalFireDepartment)
+                    }
+                    items(RecipeFilters.tiles.filterNot { it in QUICK_COURSES }, key = { "t-" + it.name }) { f ->
+                        FilterPill("${f.emoji} ${f.label}", selected = f in filters, onClick = { focus.clearFocus(); vm.toggleFilter(f) })
                     }
                     items(filters.sortedBy { it.ordinal }.filterNot { it in RecipeFilters.tiles }, key = { it.name }) { f ->
-                        InputChip(
-                            selected = true,
-                            onClick = { vm.toggleFilter(f) },
-                            label = { Text("${f.emoji} ${f.label}") },
-                            trailingIcon = { Icon(Icons.Filled.Close, "Retirer ${f.label}", Modifier.size(16.dp)) },
-                        )
+                        FilterPill("${f.emoji} ${f.label}", selected = true, onClick = { vm.toggleFilter(f) }, leading = Icons.Filled.Close)
                     }
                     if (filters.isNotEmpty()) item { TextButton(onClick = { vm.clearFilters() }) { Text("Tout effacer") } }
                 }
@@ -329,6 +300,47 @@ fun DiscoverContent(
     }
 
     if (showFilters) FiltersSheet(vm, onDismiss = { showFilters = false }, onOpenCatalog = onOpenCatalog)
+}
+
+/** Types de plat en accès direct au-dessus des résultats. */
+private val QUICK_COURSES = listOf(RecipeFilter.ENTREE, RecipeFilter.PLAT, RecipeFilter.DESSERT)
+
+/**
+ * Bascule segmentée « Tout · Entrée · Plat · Dessert ». Le type de plat est un filtre à choix unique :
+ * choisir un segment remplace le type actif, « Tout » le retire.
+ */
+@Composable
+private fun CourseSwitch(filters: Set<RecipeFilter>, onPick: (RecipeFilter) -> Unit) {
+    val currentType = filters.firstOrNull { it.group == FilterGroup.TYPE }
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(50)).background(MaterialTheme.colorScheme.surfaceContainerLowest).padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        (listOf<RecipeFilter?>(null) + QUICK_COURSES).forEach { f ->
+            val on = if (f == null) currentType == null else f == currentType
+            Surface(
+                onClick = {
+                    when {
+                        f == null -> currentType?.let(onPick)
+                        !on -> onPick(f)
+                        else -> onPick(f) // 2ᵉ toucher : retire le type
+                    }
+                },
+                shape = RoundedCornerShape(50),
+                color = if (on) MaterialTheme.colorScheme.onSurface else Color.Transparent,
+                modifier = Modifier.weight(1f).height(40.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        if (f == null) "Tout" else "${f.emoji} ${f.label}",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = if (on) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                    )
+                }
+            }
+        }
+    }
 }
 
 /** Feuille « Filtres » : groupes de filtres, sites et tri ; « Voir les recettes » lance la recherche. */
@@ -432,10 +444,10 @@ private fun IdleDiscover(
 @Composable
 private fun HitCard(hit: RecipeHit, badge: RecipeFilter?, favorite: Boolean, adding: Boolean, onClick: () -> Unit, onStar: () -> Unit) {
     Card(
-        modifier = Modifier.fillMaxWidth().clip(MaterialTheme.shapes.large).clickable(onClick = onClick),
-        shape = MaterialTheme.shapes.large,
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).clickable(onClick = onClick),
+        shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         Box {
             DishArt(hit.title, imageUrl = hit.imageUrl, modifier = Modifier.fillMaxWidth().height(110.dp), emojiSize = 40)

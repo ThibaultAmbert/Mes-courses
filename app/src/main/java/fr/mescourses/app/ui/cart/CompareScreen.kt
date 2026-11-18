@@ -1,5 +1,19 @@
 package fr.mescourses.app.ui.cart
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Surface
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
+import fr.mescourses.app.ui.components.CtaButton
+import fr.mescourses.app.ui.components.GroupLabel
+import fr.mescourses.app.ui.components.SoftButton
+import fr.mescourses.app.ui.components.WhiteCard
+import fr.mescourses.app.ui.theme.Cuisine
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -10,7 +24,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -20,8 +33,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -132,10 +143,12 @@ fun CompareScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
-                InfoBanner(
-                    "⚖️",
-                    "${state.label} : ${state.items.size} article(s) cherchés chez Carrefour, E.Leclerc et Auchan, avec tes choix précédents en priorité. " +
-                        "Les totaux sont estimés (prix affichés, hors promotions en lot). Ton enseigne préférée reste celle des Réglages.",
+                Text(
+                    "${state.label} : ${state.items.size} article(s) cherchés chez Carrefour, E.Leclerc et Auchan, tes choix habituels en priorité. " +
+                        "Totaux estimés (prix affichés, hors promotions en lot).",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 4.dp),
                 )
             }
             state.error?.let { item { Text("⚠ $it", color = MaterialTheme.colorScheme.error) } }
@@ -147,18 +160,27 @@ fun CompareScreen(
                     itemCount = state.items.size,
                     preferred = r == vm.preferred,
                     cheapest = r == cheapest,
+                    saving = state.quotes.values.filter { it.done && it.problem == null && it.priced.isNotEmpty() }.map { it.total }
+                        .takeIf { it.size > 1 }?.let { it.max() - it.min() },
                     onFill = { vm.fillWith(r); onFilled() },
                     onLogin = { onLogin(r) },
                     onChooseStore = { onChooseStore(r) },
                 )
             }
             if (state.quotes.values.any { it.found > 0 }) {
-                item { Text("Détail par article", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp)) }
-                item { DetailHeader() }
-                items(state.items.indices.toList(), key = { "item-$it" }) { i -> DetailRow(state.items[i], i, state.quotes) }
+                item { GroupLabel("Détail par article", Modifier.padding(top = 8.dp)) }
+                item {
+                    WhiteCard(padding = PaddingValues(14.dp)) {
+                        DetailHeader()
+                        state.items.indices.forEach { i ->
+                            HorizontalDivider(Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                            DetailRow(state.items[i], i, state.quotes)
+                        }
+                    }
+                }
             }
             if (!state.running) item {
-                OutlinedButton(onClick = vm::start) { Text("Relancer la comparaison") }
+                SoftButton("Relancer la comparaison", onClick = vm::start, icon = Icons.Filled.Refresh)
             }
         }
     }
@@ -171,41 +193,58 @@ private fun QuoteCard(
     itemCount: Int,
     preferred: Boolean,
     cheapest: Boolean,
+    saving: Double?,
     onFill: () -> Unit,
     onLogin: () -> Unit,
     onChooseStore: () -> Unit,
 ) {
-    SectionCard {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            RetailerDot(retailer)
-            Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                Text(retailer.label + if (preferred) " ★" else "", style = MaterialTheme.typography.titleMedium)
-                val sub = when {
-                    quote == null -> "En attente…"
-                    quote.problem != null -> quote.problem!!
-                    else -> "${quote.priced.size} / $itemCount article(s) avec un prix" + if (quote.missing > 0) " · ${quote.missing} introuvable(s)" else ""
+    // La moins chère est mise en avant : carte brun café, badge safran.
+    val bg = if (cheapest) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.surfaceContainerLowest
+    val fg = if (cheapest) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurface
+    Surface(shape = RoundedCornerShape(22.dp), color = bg, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                RetailerDot(retailer, 36.dp)
+                Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                    Text(retailer.label + if (preferred) " ★" else "", style = MaterialTheme.typography.titleMedium, color = fg)
+                    val sub = when {
+                        quote == null -> "En attente…"
+                        quote.problem != null -> quote.problem!!
+                        !quote.done -> "Recherche… ${quote.lines.count { it.status != LineStatus.A_CHERCHER }} / $itemCount"
+                        else -> "${quote.priced.size} / $itemCount trouvés" + if (quote.missing > 0) " · ${quote.missing} introuvable(s)" else ""
+                    }
+                    Text(sub, style = MaterialTheme.typography.bodySmall, color = fg.copy(alpha = 0.75f))
                 }
-                Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (quote != null && quote.problem == null && quote.priced.isNotEmpty()) {
+                    Column(horizontalAlignment = Alignment.End) {
+                        if (cheapest) Text(
+                            "Moins cher",
+                            style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Cuisine.Coffee,
+                            modifier = Modifier.clip(RoundedCornerShape(50)).background(Cuisine.Saffron).padding(horizontal = 8.dp, vertical = 2.dp),
+                        )
+                        Text(euros(quote.total), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = fg)
+                    }
+                }
             }
-            if (quote != null && quote.problem == null && quote.priced.isNotEmpty()) {
-                Text(euros(quote.total), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            if (cheapest && saving != null && saving >= 0.01) {
+                Text("${euros(saving)} d'économie sur la plus chère", style = MaterialTheme.typography.bodySmall, color = fg.copy(alpha = 0.85f))
             }
-        }
-        if (cheapest) StatChip("💶 Le moins cher", emphasized = true)
-        when {
-            quote == null -> Unit
-            quote.problem != null -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onLogin) { Text("Se connecter") }
-                OutlinedButton(onClick = onChooseStore) { Text("Mon drive") }
+            when {
+                quote == null -> Unit
+                quote.problem != null -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CtaButton("Se connecter", onClick = onLogin)
+                    SoftButton("Mon drive", onClick = onChooseStore)
+                }
+                !quote.done -> {
+                    val searched = quote.lines.count { it.status != LineStatus.A_CHERCHER }
+                    LinearProgressIndicator(
+                        progress = { searched.toFloat() / itemCount.coerceAtLeast(1) },
+                        modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(50)),
+                    )
+                }
+                quote.found > 0 -> if (cheapest) CtaButton("Remplir le panier ici", onClick = onFill, modifier = Modifier.fillMaxWidth())
+                else SoftButton("Remplir le panier ici", onClick = onFill, modifier = Modifier.fillMaxWidth(), height = 44.dp)
             }
-            !quote.done -> {
-                val searched = quote.lines.count { it.status != LineStatus.A_CHERCHER }
-                LinearProgressIndicator(
-                    progress = { searched.toFloat() / itemCount.coerceAtLeast(1) },
-                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(50)),
-                )
-            }
-            quote.found > 0 -> Button(onClick = onFill) { Text("Remplir le panier chez ${retailer.label}") }
         }
     }
 }

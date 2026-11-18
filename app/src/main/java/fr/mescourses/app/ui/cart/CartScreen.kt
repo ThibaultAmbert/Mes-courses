@@ -2,6 +2,18 @@
 
 package fr.mescourses.app.ui.cart
 
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Balance
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Storefront
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.text.font.FontWeight
+import fr.mescourses.app.ui.retail.RetailerSwitch
+import fr.mescourses.core.cart.CartLine
 import android.webkit.WebSettings
 import fr.mescourses.app.ui.components.BusyBar
 import fr.mescourses.app.ui.components.Spinner
@@ -14,21 +26,17 @@ import fr.mescourses.core.carrefour.CarrefourRoutes
 import fr.mescourses.app.llm.ModelStatus
 import fr.mescourses.app.ui.components.ChefCard
 import fr.mescourses.app.ui.components.ModelLoadingCard
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -38,7 +46,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -90,7 +97,6 @@ import fr.mescourses.app.ui.components.MiniStepper
 import fr.mescourses.app.ui.components.SectionCard
 import fr.mescourses.app.ui.components.StatChip
 import fr.mescourses.app.ui.components.StepIndicator
-import fr.mescourses.core.cart.CartLine
 import fr.mescourses.core.cart.LineStatus
 import fr.mescourses.core.carrefour.Product
 import fr.mescourses.core.shopping.ShoppingListMerger
@@ -124,26 +130,29 @@ fun CartScreen(
     val selected = state.lines.filter { it.included && it.product != null && it.status != LineStatus.AJOUTE }
     val total = state.lines.filter { it.included && it.product != null }.sumOf { (it.product?.price ?: 0.0) * it.quantity }
 
+    var showSafe by remember { mutableStateOf(false) }
     ScreenScaffold(
-        title = "Panier $who",
+        title = "Panier",
+        subtitle = settings.storeName(retailer).ifBlank { "Drive ${retailer.label}" },
+        actions = {
+            fr.mescourses.app.ui.components.RoundIconButton(Icons.Filled.Storefront, "Mon drive ${retailer.label}", { onChooseStore(retailer) })
+        },
         onOpenSettings = onOpenSettings,
         bottomBar = {
             when (state.phase) {
-                Phase.VALIDATION -> BottomActionBar {
-                    Column(Modifier.weight(1f)) {
+                Phase.VALIDATION -> CartBottomBar {
+                    Column {
                         Text("Total estimé", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(euros(total), style = MaterialTheme.typography.titleLarge)
+                        Text(euros(total), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                     }
-                    Button(onClick = vm::send, enabled = selected.isNotEmpty()) { Text("Ajouter ${selected.size} produits") }
+                    fr.mescourses.app.ui.components.CtaButton(
+                        "Envoyer ${selected.size} produit${if (selected.size > 1) "s" else ""}",
+                        onClick = vm::send, enabled = selected.isNotEmpty(), modifier = Modifier.weight(1f),
+                    )
                 }
-                Phase.TERMINE -> BottomActionBar {
-                    OutlinedButton(onClick = vm::markSentAsBought) { Text("Cocher dans la liste") }
-                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Button(onClick = { open(site.webCart()) }, modifier = Modifier.fillMaxWidth()) {
-                            Text("Finaliser sur $who")
-                        }
-                        RetailerAppButton(retailer)
-                    }
+                Phase.TERMINE -> CartBottomBar {
+                    fr.mescourses.app.ui.components.SoftButton("Cocher dans la liste", onClick = vm::markSentAsBought)
+                    fr.mescourses.app.ui.components.CtaButton("Finaliser sur $who", onClick = { open(site.webCart()) }, modifier = Modifier.weight(1f))
                 }
                 else -> Unit
             }
@@ -157,14 +166,9 @@ fun CartScreen(
             item {
                 // Enseigne du panier : la préférée par défaut ; en changer relance la recherche des produits.
                 val busy = state.phase == Phase.RECHERCHE || state.phase == Phase.ENVOI
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    RetailerChips(selected = retailer, preferred = settings.preferredRetailer, enabled = !busy, onSelect = vm::switchTo)
-                    if (state.phase == Phase.IDLE || state.phase == Phase.VALIDATION) {
-                        TextButton(onClick = { vm.prepareCompare(); onCompare() }) { Text("⚖️ Comparer les prix Carrefour · Leclerc · Auchan") }
-                    }
-                }
+                RetailerSwitch(selected = retailer, preferred = settings.preferredRetailer, enabled = !busy, onSelect = vm::switchTo)
             }
-            item {
+            if (session != SessionState.CONNECTE) item {
                 AccountCard(retailer, session, settings.storeName(retailer), onLogin = { onLogin(retailer) }, onChooseStore = { onChooseStore(retailer) })
             }
             if (session != SessionState.CONNECTE) {
@@ -176,8 +180,9 @@ fun CartScreen(
                 }
                 return@LazyColumn
             }
-            item {
-                StepIndicator(steps = listOf("Préparer", "Vérifier", "Envoyer"), current = stepIndex, onStep = {}, enabled = { false })
+            item { CartSteps(stepIndex) }
+            if (state.phase == Phase.IDLE || state.phase == Phase.VALIDATION) item {
+                CompareEntry(onClick = { vm.prepareCompare(); onCompare() })
             }
             state.error?.let { err -> item { Text("⚠ $err", color = MaterialTheme.colorScheme.error) } }
             when (state.phase) {
@@ -252,7 +257,17 @@ fun CartScreen(
                 }
             }
             if (state.phase != Phase.IDLE) {
-                itemsIndexed(state.lines) { index, line ->
+                val indexed = state.lines.withIndex().toList()
+                // Pendant la vérification : seulement ce qui demande une décision ; les correspondances sûres sont repliées.
+                val grouped = state.phase == Phase.VALIDATION || state.phase == Phase.TERMINE
+                val (review, safe) = if (grouped) indexed.partition { needsReview(it.value) } else indexed to emptyList()
+                if (grouped && review.isNotEmpty()) item(key = "h-review") {
+                    fr.mescourses.app.ui.components.GroupLabel(
+                        if (state.phase == Phase.TERMINE) "${review.size} à regarder" else "${review.size} à vérifier",
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+                items(review, key = { "l-" + it.index }) { (index, line) ->
                     CartLineCard(
                         line = line,
                         editable = state.phase == Phase.VALIDATION,
@@ -260,6 +275,25 @@ fun CartScreen(
                         onAlternatives = { if (line.remembered) vm.moreChoices(index) else alternativesFor = index },
                         onProduct = vm::openProduct,
                     )
+                }
+                if (safe.isNotEmpty()) {
+                    item(key = "h-safe") {
+                        SafeToggle(
+                            count = safe.size,
+                            done = state.phase == Phase.TERMINE,
+                            expanded = showSafe,
+                            onToggle = { showSafe = !showSafe },
+                        )
+                    }
+                    if (showSafe) items(safe, key = { "l-" + it.index }) { (index, line) ->
+                        CartLineCard(
+                            line = line,
+                            editable = state.phase == Phase.VALIDATION,
+                            onChange = { t -> vm.updateLine(index, t) },
+                            onAlternatives = { if (line.remembered) vm.moreChoices(index) else alternativesFor = index },
+                            onProduct = vm::openProduct,
+                        )
+                    }
                 }
             }
             // Articles du panier que le drive ne pourra pas servir : remplaçants proposés.
@@ -571,7 +605,7 @@ private fun CartLineCard(
 ) {
     val product = line.product
     Card(
-        shape = MaterialTheme.shapes.medium,
+        shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (line.included || line.status == LineStatus.AJOUTE) MaterialTheme.colorScheme.surfaceContainerLowest
             else MaterialTheme.colorScheme.surfaceContainer,
@@ -762,4 +796,101 @@ private fun RetailerAppButton(retailer: Retailer) {
     TextButton(onClick = {
         runCatching { context.startActivity(intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
     }) { Text("Ouvrir l'app ${retailer.label} ↗") }
+}
+
+
+/** Une ligne demande-t-elle un regard (introuvable, erreur, remarque, décochée) ? Sinon c'est une correspondance sûre. */
+private fun needsReview(line: CartLine): Boolean =
+    line.status == LineStatus.INTROUVABLE || line.status == LineStatus.ERREUR || line.status == LineStatus.A_CHERCHER ||
+        line.note != null || !line.included
+
+/** Barre du bas du panier : fond crème, ombre légère. */
+@Composable
+private fun CartBottomBar(content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit) {
+    androidx.compose.material3.Surface(color = MaterialTheme.colorScheme.surface, shadowElevation = 8.dp) {
+        Row(
+            Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            content = content,
+        )
+    }
+}
+
+/** Étapes Produits → Vérifier → Envoyer : coche brune pour les étapes faites, pastille tomate pour l'étape en cours. */
+@Composable
+private fun CartSteps(current: Int) {
+    val labels = listOf("Produits", "Vérifier", "Envoyer")
+    Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        labels.forEachIndexed { i, label ->
+            val done = i < current
+            val on = i == current
+            Box(
+                Modifier.size(26.dp).clip(CircleShape).background(
+                    when {
+                        done -> MaterialTheme.colorScheme.onSurface
+                        on -> MaterialTheme.colorScheme.primary
+                        else -> MaterialTheme.colorScheme.surfaceContainerLowest
+                    },
+                ),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (done) Icon(Icons.Filled.Check, null, tint = MaterialTheme.colorScheme.surface, modifier = Modifier.size(14.dp))
+                else Text("${i + 1}", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold,
+                    color = if (on) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Text(
+                label,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = if (on) FontWeight.Bold else FontWeight.Medium,
+                color = if (done || on) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 6.dp),
+            )
+            if (i < labels.lastIndex) Box(Modifier.weight(1f).padding(horizontal = 8.dp).height(2.dp).background(MaterialTheme.colorScheme.outlineVariant))
+        }
+    }
+}
+
+/** Ligne verte vers la comparaison des trois enseignes. */
+@Composable
+private fun CompareEntry(onClick: () -> Unit) {
+    androidx.compose.material3.Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(18.dp),
+        color = fr.mescourses.app.ui.theme.Cuisine.BasilLight,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Icon(Icons.Filled.Balance, null, tint = fr.mescourses.app.ui.theme.Cuisine.Coffee)
+            Column(Modifier.weight(1f)) {
+                Text("Comparer les prix", style = MaterialTheme.typography.titleSmall, color = fr.mescourses.app.ui.theme.Cuisine.Coffee)
+                Text("Carrefour · Leclerc · Auchan, même liste", style = MaterialTheme.typography.bodySmall, color = fr.mescourses.app.ui.theme.Cuisine.CoffeeMuted)
+            }
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = fr.mescourses.app.ui.theme.Cuisine.Coffee)
+        }
+    }
+}
+
+/** « n correspondances sûres » : repliées par défaut, un toucher les affiche. */
+@Composable
+private fun SafeToggle(count: Int, done: Boolean, expanded: Boolean, onToggle: () -> Unit) {
+    androidx.compose.material3.Surface(
+        onClick = onToggle,
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLowest,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Box(Modifier.size(40.dp).clip(CircleShape).background(fr.mescourses.app.ui.theme.Cuisine.BasilLight), contentAlignment = Alignment.Center) {
+                Icon(Icons.Filled.Check, null, tint = fr.mescourses.app.ui.theme.Cuisine.Coffee, modifier = Modifier.size(20.dp))
+            }
+            Text(
+                if (done) "$count produit${if (count > 1) "s" else ""} ajouté${if (count > 1) "s" else ""}"
+                else "$count correspondance${if (count > 1) "s" else ""} sûre${if (count > 1) "s" else ""}",
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.weight(1f),
+            )
+            Text(if (expanded) "Masquer" else "Afficher", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
 }

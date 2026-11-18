@@ -28,8 +28,8 @@ class CookbookViewModel(private val c: AppContainer) : ViewModel() {
 
     val query = MutableStateFlow("")
     val tab = MutableStateFlow(RecipeStatus.FAVORI)
-    /** Onglet « Découvrir » (recherche sur les sites de recettes), premier onglet et affiché à l'ouverture. */
-    val discover = MutableStateFlow(true)
+    /** Écran « Découvrir » (recherche sur les sites de recettes), ouvert depuis la bibliothèque. */
+    val discover = MutableStateFlow(false)
     private val favorites = fr.mescourses.app.ui.discover.Favorites(c, viewModelScope)
     val importing = MutableStateFlow(false)
     val messages = MutableStateFlow<String?>(null)

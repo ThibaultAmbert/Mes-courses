@@ -5,6 +5,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.CircleShape
@@ -47,6 +50,38 @@ fun RetailerChips(selected: Retailer, preferred: Retailer?, enabled: Boolean = t
                 label = { Text(r.label + if (r == preferred) " ★" else "") },
                 leadingIcon = { RetailerDot(r, 18.dp) },
             )
+        }
+    }
+}
+
+/** Bascule segmentée des enseignes (Carrefour · Leclerc · Auchan), pastille de couleur devant chaque nom. */
+@Composable
+fun RetailerSwitch(selected: Retailer, preferred: Retailer?, enabled: Boolean = true, onSelect: (Retailer) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clip(androidx.compose.foundation.shape.RoundedCornerShape(50))
+            .background(MaterialTheme.colorScheme.surfaceContainerLowest).padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Retailer.entries.forEach { r ->
+            val on = r == selected
+            androidx.compose.material3.Surface(
+                onClick = { if (!on) onSelect(r) },
+                enabled = enabled,
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(50),
+                color = if (on) MaterialTheme.colorScheme.onSurface else Color.Transparent,
+                modifier = Modifier.weight(1f).height(40.dp),
+            ) {
+                Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(10.dp).clip(CircleShape).background(retailerColor(r)))
+                    Text(
+                        r.label.removePrefix("E.") + if (r == preferred) " ★" else "",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = if (on) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(start = 6.dp),
+                        maxLines = 1,
+                    )
+                }
+            }
         }
     }
 }
