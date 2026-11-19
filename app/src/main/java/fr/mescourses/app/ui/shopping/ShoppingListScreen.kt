@@ -2,6 +2,8 @@
 
 package fr.mescourses.app.ui.shopping
 
+import fr.mescourses.core.model.stripAccents
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -147,6 +149,11 @@ class ShoppingViewModel(private val c: AppContainer) : ViewModel() {
         }.sortedWith(compareBy({ it.checked }, { it.aisle.ordinal }, { it.label.lowercase() }))
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    /** Recettes du livre par titre (sans accents ni casse), pour ouvrir la recette d'origine d'un article. */
+    val recipeIds: StateFlow<Map<String, Long>> = c.recipes.observeAll()
+        .map { list -> list.associate { recipeKey(it.title) to it.id } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
     fun add(text: String) = viewModelScope.launch {
         text.split('\n', ';', ',').map { it.trim() }.filter { it.isNotEmpty() }
             .takeIf { it.isNotEmpty() }
@@ -229,8 +236,9 @@ class ShoppingViewModel(private val c: AppContainer) : ViewModel() {
 }
 
 @Composable
-fun ShoppingListScreen(onOpenSettings: () -> Unit, onSendToCart: () -> Unit) {
+fun ShoppingListScreen(onOpenSettings: () -> Unit, onSendToCart: () -> Unit, onOpenRecipe: (Long) -> Unit = {}) {
     val vm = containerViewModel { ShoppingViewModel(it) }
+    val recipeIds by vm.recipeIds.collectAsStateWithLifecycle()
     val lines by vm.lines.collectAsStateWithLifecycle()
     var input by remember { mutableStateOf("") }
     var editing by remember { mutableStateOf<ShoppingLine?>(null) }
@@ -378,6 +386,8 @@ fun ShoppingListScreen(onOpenSettings: () -> Unit, onSendToCart: () -> Unit) {
     editing?.let { line ->
         EditItemSheet(
             line = line,
+            recipes = line.origin?.split(", ")?.filter { it.isNotBlank() }?.map { it to recipeIds[recipeKey(it)] }.orEmpty(),
+            onOpenRecipe = { id -> editing = null; onOpenRecipe(id) },
             onDismiss = { editing = null },
             onSave = { name, q, u -> vm.edit(line, name, q, u); editing = null },
             onDelete = {
@@ -464,7 +474,7 @@ private fun AisleCard(
 
 /** Feuille « Modifier l'article » : nom, quantité, unité ; Supprimer / Enregistrer. */
 @Composable
-private fun EditItemSheet(line: ShoppingLine, onDismiss: () -> Unit, onSave: (String, Double?, String?) -> Unit, onDelete: () -> Unit) {
+private fun EditItemSheet(line: ShoppingLine, recipes: List<Pair<String, Long?>>, onOpenRecipe: (Long) -> Unit, onDismiss: () -> Unit, onSave: (String, Double?, String?) -> Unit, onDelete: () -> Unit) {
     var name by remember(line.key) { mutableStateOf(line.label) }
     var quantity by remember(line.key) { mutableStateOf(line.editQuantity?.let { ShoppingListMerger.formatNumber(it) } ?: "") }
     var unit by remember(line.key) { mutableStateOf(line.editUnit) }
@@ -477,6 +487,29 @@ private fun EditItemSheet(line: ShoppingLine, onDismiss: () -> Unit, onSave: (St
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text("Modifier l'article", style = MaterialTheme.typography.titleLarge)
+            // Recette(s) d'où vient l'article : un toucher ouvre la fiche (si elle est dans le livre).
+            if (recipes.isNotEmpty()) Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    if (recipes.size > 1) "Pour les recettes" else "Pour la recette",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                recipes.forEach { (title, id) ->
+                    Surface(
+                        onClick = { id?.let(onOpenRecipe) },
+                        enabled = id != null,
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Icon(Icons.AutoMirrored.Filled.MenuBook, null, Modifier.size(20.dp), tint = Cuisine.Tomato)
+                            Text(title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (id != null) Text("Voir", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                }
+            }
             if (line.sources.size > 1) {
                 Text(
                     "Cette ligne regroupe ${line.sources.size} articles (${line.origin ?: "liste"}) : ils seront remplacés par un seul.",
@@ -564,3 +597,7 @@ private fun ShoppingRow(line: ShoppingLine, onToggle: () -> Unit, onEdit: () -> 
         }
     }
 }
+
+
+/** Clé de rapprochement d'un titre de recette (origine d'un article ↔ livre). */
+private fun recipeKey(title: String) = title.trim().lowercase().stripAccents()

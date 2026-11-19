@@ -224,7 +224,7 @@ fun AppRoot(sharedUrl: String?, onSharedUrlConsumed: () -> Unit) {
                 )
             }
             composable("shopping") {
-                ShoppingListScreen(onOpenSettings = { nav.navigate("settings") }, onSendToCart = { goTab("cart") })
+                ShoppingListScreen(onOpenSettings = { nav.navigate("settings") }, onSendToCart = { goTab("cart") }, onOpenRecipe = { nav.navigate("recipe/$it") })
             }
             composable("cart") {
                 CartScreen(
