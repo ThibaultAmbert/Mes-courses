@@ -76,6 +76,8 @@ data class CatalogStatus(
     val installing: String? = null,
     /** Avancement du téléchargement de la base en cours (0..1) ; null = inconnu ou pendant l'enregistrement. */
     val installProgress: Float? = null,
+    /** Sites en attente de leur tour (téléchargements demandés pendant qu'un autre est en cours). */
+    val pending: Set<String> = emptySet(),
     /** Métadonnées du modèle d'embeddings publiées par la release (ou repli par défaut). */
     val embedderRemote: EmbedderRemote? = null,
     /** Le fichier du modèle d'embeddings est présent et non vide dans `files/embedder/`. */
@@ -152,19 +154,23 @@ class CatalogSync(
         scope.launch(Dispatchers.IO) { loadRemote() }
     }
 
-    /** Télécharge et installe les bases demandées, l'une après l'autre. */
+    /** Télécharge et installe les bases demandées, l'une après l'autre (les demandes se mettent en file). */
     fun install(siteIds: List<String>) {
+        val ids = siteIds.filter { CatalogSources.byId(it) != null }.distinct()
+            .filter { it != status.value.installing && it !in status.value.pending }
+        if (ids.isEmpty()) return
+        status.update { it.copy(pending = it.pending + ids) }
         scope.launch(Dispatchers.IO) {
-            exclusive("Téléchargement…") {
+            exclusive("Téléchargement…", wait = true) {
                 val results = ArrayList<String>()
                 val failed = ArrayList<String>()
-                for (id in siteIds) {
-                    if (CatalogSources.byId(id) == null) continue
+                for (id in ids) {
                     val name = siteName(id)
-                    status.update { it.copy(installing = id, working = "$name : téléchargement…") }
+                    status.update { it.copy(installing = id, installProgress = null, pending = it.pending - id, working = "$name : téléchargement…") }
                     try {
                         results += "$name : %,d".format(java.util.Locale.FRANCE, installOne(id))
                     } catch (e: CancellationException) {
+                        status.update { it.copy(pending = it.pending - ids.toSet()) }
                         throw e
                     } catch (e: Exception) {
                         Log.w(TAG, "Base $id", e)
@@ -370,8 +376,8 @@ class CatalogSync(
     }
 
     /** Un seul travail à la fois ; l'état est relu à la fin, même en cas d'erreur. */
-    private suspend fun exclusive(label: String, work: suspend () -> String?) {
-        if (!lock.tryLock()) return
+    private suspend fun exclusive(label: String, wait: Boolean = false, work: suspend () -> String?) {
+        if (wait) lock.lock() else if (!lock.tryLock()) return
         try {
             status.update { it.copy(working = label) }
             val result = try {

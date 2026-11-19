@@ -55,6 +55,7 @@ import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.runtime.key
 import fr.mescourses.app.ui.catalog.CatalogScreen
+import fr.mescourses.app.ui.catalog.ModelsSetupScreen
 import fr.mescourses.app.ui.cookbook.CookbookScreen
 import fr.mescourses.app.ui.cookbook.RecipeDetailScreen
 import fr.mescourses.app.ui.cookbook.RecipeEditScreen
@@ -165,6 +166,11 @@ fun AppRoot(sharedUrl: String?, onSharedUrlConsumed: () -> Unit) {
             composable("catalog/setup") {
                 CatalogScreen(
                     firstRun = true,
+                    onDone = { nav.navigate("models/setup") },
+                )
+            }
+            composable("models/setup") {
+                ModelsSetupScreen(
                     onDone = {
                         container.catalogSync.finishSetup()
                         nav.navigate("menu") { popUpTo("catalog/setup") { inclusive = true } }
