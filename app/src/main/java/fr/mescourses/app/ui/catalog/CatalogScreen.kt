@@ -1,6 +1,27 @@
 package fr.mescourses.app.ui.catalog
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material3.Icon
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import fr.mescourses.app.ui.components.SiteLogoBadge
+import fr.mescourses.app.ui.theme.Cuisine
 import fr.mescourses.app.ui.components.BusyBar
 import fr.mescourses.app.ui.components.Spinner
 import androidx.compose.foundation.layout.Column
@@ -40,8 +61,9 @@ import fr.mescourses.core.recipes.RecipeSites
 import java.util.Locale
 
 /**
- * Choix des bases de recettes à télécharger (une par site). Premier écran au premier lancement ([firstRun]), puis
- * accessible depuis les Réglages et depuis les filtres de recherche.
+ * Choix des bases de recettes à télécharger : une grille de logos, un par site. Toucher un logo télécharge la base (ou la
+ * met à jour) : un anneau d'avancement se dessine alors autour du logo. Premier écran au premier lancement
+ * ([firstRun]), puis accessible depuis les Réglages et depuis les filtres de recherche.
  */
 @Composable
 fun CatalogScreen(firstRun: Boolean, onDone: () -> Unit) {
@@ -53,17 +75,18 @@ fun CatalogScreen(firstRun: Boolean, onDone: () -> Unit) {
     val sites = CatalogSources.all.map { it.siteId }.sortedBy { siteName(it).lowercase() }
     val missing = sites.filter { it !in st.installed }
     val outdated = sites.filter { st.outdated(it) }
-    val busy = st.working != null
+    val busy = st.working != null || st.pending.isNotEmpty()
+    var confirmRemove by remember { mutableStateOf<String?>(null) }
 
     ScreenScaffold(title = "Bases de recettes", onBack = if (firstRun) null else onDone) { padding ->
         Column(
             Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp).navigationBarsPadding(),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text(
-                if (firstRun) "Choisis les sites dont tu veux avoir les recettes sur ton téléphone. Découvrir et le menu cherchent dedans sans réseau. " +
+                if (firstRun) "Touche un site pour télécharger ses recettes sur ton téléphone : Découvrir et le menu cherchent dedans, sans réseau. " +
                     "Tu pourras en ajouter, les mettre à jour ou en retirer plus tard dans Réglages › Bases de recettes."
-                else "Une base par site de recettes, enregistrée sur le téléphone. Seules les bases téléchargées sont utilisées par la recherche et le menu.",
+                else "Touche un site pour télécharger ou mettre à jour sa base. Seules les bases téléchargées sont utilisées par la recherche et le menu.",
                 style = MaterialTheme.typography.bodyMedium,
             )
             Text(
@@ -71,21 +94,43 @@ fun CatalogScreen(firstRun: Boolean, onDone: () -> Unit) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            if (missing.isNotEmpty()) {
-                Button(onClick = { sync.install(missing) }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
-                    Text(if (missing.size == sites.size) "Tout télécharger" else "Télécharger les ${missing.size} restantes")
+
+            sites.chunked(GRID_COLUMNS).forEach { rowSites ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    rowSites.forEach { id ->
+                        SiteTile(
+                            id, st,
+                            onClick = {
+                                when {
+                                    st.installing == id || id in st.pending -> Unit
+                                    id !in st.installed || st.outdated(id) -> sync.install(listOf(id))
+                                    else -> confirmRemove = id
+                                }
+                            },
+                            onLongClick = { if (id in st.installed && st.installing != id) confirmRemove = id },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    // Dernière ligne incomplète : on garde la largeur des cases.
+                    repeat(GRID_COLUMNS - rowSites.size) { Spacer(Modifier.weight(1f)) }
                 }
             }
-            if (outdated.isNotEmpty()) {
-                OutlinedButton(onClick = { sync.install(outdated) }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
-                    Text(if (outdated.size == 1) "Mettre à jour la base disponible" else "Tout mettre à jour (${outdated.size} bases)")
+
+            Legend()
+
+            if (missing.isNotEmpty() || outdated.isNotEmpty()) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (missing.isNotEmpty()) Button(onClick = { sync.install(missing) }, enabled = !busy, modifier = Modifier.weight(1f)) {
+                        Text(if (missing.size == sites.size) "Tout télécharger" else "Télécharger les ${missing.size} restantes")
+                    }
+                    if (outdated.isNotEmpty()) OutlinedButton(onClick = { sync.install(outdated) }, enabled = !busy, modifier = Modifier.weight(1f)) {
+                        Text(if (outdated.size == 1) "Mettre à jour" else "Tout mettre à jour (${outdated.size})")
+                    }
                 }
             }
-            sites.forEach { id -> SiteRow(id, st, busy, onInstall = { sync.install(listOf(id)) }, onRemove = { sync.remove(id) }) }
 
             st.working?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            if (busy) BusyBar(Modifier.fillMaxWidth())
-            else st.lastResult?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            if (st.working == null) st.lastResult?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
 
             if (firstRun) {
                 Button(onClick = onDone, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
@@ -99,48 +144,109 @@ fun CatalogScreen(firstRun: Boolean, onDone: () -> Unit) {
             }
         }
     }
+
+    confirmRemove?.let { id ->
+        AlertDialog(
+            onDismissRequest = { confirmRemove = null },
+            title = { Text("Supprimer la base ${siteName(id)} ?") },
+            text = {
+                Text(
+                    "Ses %,d recettes seront retirées du téléphone : Découvrir et le menu ne les trouveront plus. ".format(Locale.FRANCE, st.bySite[id] ?: 0) +
+                        "Tes favoris et ton historique ne changent pas. Tu pourras la télécharger de nouveau.",
+                )
+            },
+            confirmButton = { TextButton(onClick = { confirmRemove = null; sync.remove(id) }) { Text("Supprimer") } },
+            dismissButton = { TextButton(onClick = { confirmRemove = null }) { Text("Annuler") } },
+        )
+    }
 }
 
+private const val GRID_COLUMNS = 3
+
+/** Une case de la grille : logo, anneau d'avancement pendant le téléchargement, pastille d'état et nom du site. */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun SiteRow(id: String, st: CatalogStatus, busy: Boolean, onInstall: () -> Unit, onRemove: () -> Unit) {
+private fun SiteTile(id: String, st: CatalogStatus, onClick: () -> Unit, onLongClick: () -> Unit, modifier: Modifier = Modifier) {
     val installed = id in st.installed
+    val downloading = st.installing == id
+    val waiting = id in st.pending
+    val outdated = st.outdated(id)
+    val name = siteName(id)
     val size = st.remote[id]?.bytes?.takeIf { it > 0 }?.let { mb(it) }
-    var confirmRemove by remember { mutableStateOf(false) }
-    SectionCard(contentPadding = 12.dp) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Column(Modifier.weight(1f)) {
-                Text(siteName(id), style = MaterialTheme.typography.titleSmall)
-                Text(
-                    when {
-                        installed -> "%,d recettes".format(Locale.FRANCE, st.bySite[id] ?: 0) + if (st.outdated(id)) " · mise à jour disponible" else " · à jour"
-                        else -> "Non téléchargée" + (size?.let { " · $it" }.orEmpty())
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+    val progress = st.installProgress
+
+    val subtitle = when {
+        downloading -> progress?.let { "${(it * 100).toInt()} %" } ?: "Téléchargement…"
+        waiting -> "En attente…"
+        installed -> "%,d recettes".format(Locale.FRANCE, st.bySite[id] ?: 0)
+        else -> size ?: "Non téléchargée"
+    }
+    val stateText = when {
+        downloading -> "téléchargement en cours"
+        waiting -> "en attente"
+        installed && outdated -> "mise à jour disponible"
+        installed -> "à jour"
+        else -> "non téléchargée"
+    }
+
+    Column(
+        modifier
+            .clip(RoundedCornerShape(18.dp))
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .semantics(mergeDescendants = true) { contentDescription = "$name, $stateText" }
+            .padding(vertical = 10.dp, horizontal = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Box(Modifier.size(LOGO_BOX), contentAlignment = Alignment.Center) {
+            // Une base absente est grisée : elle « s'allume » une fois téléchargée.
+            SiteLogoBadge(id, name, LOGO_SIZE, alpha = if (installed || downloading) 1f else 0.45f)
+            when {
+                downloading -> {
+                    if (progress != null) CircularProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier.size(LOGO_BOX),
+                        strokeWidth = 4.dp,
+                        trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    ) else Spinner(Modifier.size(LOGO_BOX), strokeWidth = 4.dp, trackColor = MaterialTheme.colorScheme.surfaceContainerHighest)
+                }
+                waiting -> CircularProgressIndicator(
+                    progress = { 0f },
+                    modifier = Modifier.size(LOGO_BOX),
+                    strokeWidth = 4.dp,
+                    trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                 )
             }
-            when {
-                st.installing == id -> st.installProgress?.let { p ->
-                    CircularProgressIndicator(progress = { p }, modifier = Modifier.size(28.dp), strokeWidth = 3.dp)
-                } ?: Spinner(Modifier.size(24.dp), strokeWidth = 2.dp)
-                !installed -> Button(onClick = onInstall, enabled = !busy) { Text("Télécharger") }
-                st.outdated(id) -> OutlinedButton(onClick = onInstall, enabled = !busy) { Text("Mettre à jour") }
+            val badge: Triple<ImageVector, Color, Color>? = when {
+                downloading || waiting -> null
+                installed && outdated -> Triple(Icons.Filled.Sync, Cuisine.Saffron, Cuisine.Coffee)
+                installed -> Triple(Icons.Filled.Check, Cuisine.Basil, Cuisine.Coffee)
+                else -> Triple(Icons.Filled.Download, MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.onPrimary)
             }
-            // Toute base installée peut être retirée (à jour ou non).
-            if (installed && st.installing != id) TextButton(onClick = { confirmRemove = true }, enabled = !busy) { Text("Supprimer") }
+            if (badge != null) Box(
+                Modifier.align(Alignment.BottomEnd).size(24.dp).clip(CircleShape).background(badge.second),
+                contentAlignment = Alignment.Center,
+            ) { Icon(badge.first, null, Modifier.size(15.dp), tint = badge.third) }
         }
+        Text(name, style = MaterialTheme.typography.titleSmall, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(
+            subtitle,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (installed && outdated && !downloading) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
     }
-    if (confirmRemove) AlertDialog(
-        onDismissRequest = { confirmRemove = false },
-        title = { Text("Supprimer la base ${siteName(id)} ?") },
-        text = {
-            Text(
-                "Ses %,d recettes seront retirées du téléphone : Découvrir et le menu ne les trouveront plus. ".format(Locale.FRANCE, st.bySite[id] ?: 0) +
-                    "Tes favoris et ton historique ne changent pas. Tu pourras la télécharger de nouveau.",
-            )
-        },
-        confirmButton = { TextButton(onClick = { confirmRemove = false; onRemove() }) { Text("Supprimer") } },
-        dismissButton = { TextButton(onClick = { confirmRemove = false }) { Text("Annuler") } },
+}
+
+private val LOGO_BOX = 80.dp
+private val LOGO_SIZE = 68.dp
+
+@Composable
+private fun Legend() {
+    Text(
+        "Coche verte : à jour · Pastille orange : mise à jour disponible · Appui long sur une base installée : la supprimer.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
 }
 
@@ -155,7 +261,7 @@ fun SemanticSearchCard() {
 }
 
 @Composable
-private fun EmbedderRow(st: CatalogStatus, onInstall: () -> Unit, onCancel: () -> Unit, onRemove: () -> Unit) {
+internal fun EmbedderRow(st: CatalogStatus, onInstall: () -> Unit, onCancel: () -> Unit, onRemove: () -> Unit) {
     val sizeBytes = st.embedderRemote?.bytes?.takeIf { it > 0 } ?: CatalogSync.DEFAULT_EMBEDDER_BYTES
     val sizeLabel = mb(sizeBytes)
     var confirmRemove by remember { mutableStateOf(false) }
@@ -209,6 +315,6 @@ private fun EmbedderRow(st: CatalogStatus, onInstall: () -> Unit, onCancel: () -
     )
 }
 
-private fun siteName(id: String) = RecipeSites.byId(id)?.name ?: id
+internal fun siteName(id: String) = RecipeSites.byId(id)?.name ?: id
 
-private fun mb(bytes: Long) = if (bytes < 1_000_000) "<1 Mo" else "%.0f Mo".format(Locale.FRANCE, bytes / 1_000_000.0)
+internal fun mb(bytes: Long) = if (bytes < 1_000_000) "<1 Mo" else "%.0f Mo".format(Locale.FRANCE, bytes / 1_000_000.0)
