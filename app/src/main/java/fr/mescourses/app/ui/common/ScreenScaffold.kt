@@ -25,6 +25,8 @@ fun ScreenScaffold(
     onBack: (() -> Unit)? = null,
     onOpenSettings: (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
+    /** Contenu fixe sous le titre (bascule, onglets…). */
+    below: @Composable () -> Unit = {},
     floatingActionButton: @Composable () -> Unit = {},
     snackbar: SnackbarHostState = remember { SnackbarHostState() },
     bottomBar: @Composable () -> Unit = {},
@@ -33,6 +35,7 @@ fun ScreenScaffold(
     Scaffold(
         contentWindowInsets = WindowInsets(0),
         topBar = {
+            androidx.compose.foundation.layout.Column {
             fr.mescourses.app.ui.components.PageTitle(
                 title = title,
                 subtitle = subtitle,
@@ -42,6 +45,8 @@ fun ScreenScaffold(
                     if (onOpenSettings != null) fr.mescourses.app.ui.components.RoundIconButton(Icons.Filled.Settings, "Réglages", onOpenSettings)
                 },
             )
+            below()
+            }
         },
         floatingActionButton = floatingActionButton,
         snackbarHost = { SnackbarHost(snackbar) },

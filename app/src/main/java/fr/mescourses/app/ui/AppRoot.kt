@@ -1,5 +1,6 @@
 package fr.mescourses.app.ui
 
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
@@ -69,9 +70,14 @@ private data class Tab(val route: String, val label: String, val icon: ImageVect
 private val tabs = listOf(
     Tab("menu", "Envie", Icons.Filled.AutoAwesome),
     Tab("cookbook", "Recettes", Icons.AutoMirrored.Filled.MenuBook),
-    Tab("shopping", "Liste", Icons.Filled.Checklist),
-    Tab("cart", "Panier", Icons.Filled.ShoppingCart),
+    // Un seul onglet pour la liste (« En magasin ») et le panier (« Au drive ») : voir CoursesSwitch.
+    Tab("courses", "Courses", Icons.Filled.ShoppingCart),
 )
+
+/** L'onglet Courses couvre les routes de la liste et du panier. */
+private fun Tab.matches(route: String?): Boolean =
+    if (this.route == "courses") route?.startsWith("shopping") == true || route?.startsWith("cart") == true
+    else route?.startsWith(this.route) == true
 
 @Composable
 fun AppRoot(sharedUrl: String?, onSharedUrlConsumed: () -> Unit) {
@@ -92,7 +98,11 @@ fun AppRoot(sharedUrl: String?, onSharedUrlConsumed: () -> Unit) {
         if (sharedUrl != null && startRoute != null) nav.navigate("cookbook?import=${android.net.Uri.encode(sharedUrl)}")
     }
 
-    fun goTab(route: String) = nav.navigate(route) {
+    // Dernier mode ouvert de l'onglet Courses (liste ou panier), rouvert au toucher de l'onglet.
+    var coursesRoute by rememberSaveable { mutableStateOf("shopping") }
+    LaunchedEffect(current) { if (current == "shopping" || current == "cart") coursesRoute = current }
+
+    fun goTab(route: String) = nav.navigate(if (route == "courses") coursesRoute else route) {
         popUpTo(nav.graph.findStartDestination().id) { saveState = true }
         launchSingleTop = true
         restoreState = true
@@ -120,16 +130,16 @@ fun AppRoot(sharedUrl: String?, onSharedUrlConsumed: () -> Unit) {
             )
         },
         bottomBar = {
-            if (!imeOpen && tabs.any { current?.startsWith(it.route) == true }) {
+            if (!imeOpen && tabs.any { it.matches(current) }) {
                 NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
                     tabs.forEach { tab ->
                         val badge = when (tab.route) {
                             "menu" -> draftCount
-                            "shopping" -> remaining
+                            "courses" -> remaining
                             else -> 0
                         }
                         NavigationBarItem(
-                            selected = current?.startsWith(tab.route) == true,
+                            selected = tab.matches(current),
                             onClick = { goTab(tab.route) },
                             icon = {
                                 BadgedBox(badge = { if (badge > 0) Badge { Text("$badge") } }) {
@@ -224,7 +234,7 @@ fun AppRoot(sharedUrl: String?, onSharedUrlConsumed: () -> Unit) {
                 )
             }
             composable("shopping") {
-                ShoppingListScreen(onOpenSettings = { nav.navigate("settings") }, onSendToCart = { goTab("cart") }, onOpenRecipe = { nav.navigate("recipe/$it") })
+                ShoppingListScreen(onOpenSettings = { nav.navigate("settings") }, onSendToCart = { goTab("cart") }, onOpenRecipe = { nav.navigate("recipe/$it") }, onDrive = { goTab("cart") })
             }
             composable("cart") {
                 CartScreen(
@@ -233,6 +243,7 @@ fun AppRoot(sharedUrl: String?, onSharedUrlConsumed: () -> Unit) {
                     onOpenSite = { r, url -> nav.navigate(webRoute(r, url, WebMode.SITE)) },
                     onChooseStore = { r -> nav.navigate("retail/store/${r.name}") },
                     onCompare = { nav.navigate("cart/compare") },
+                    onStore = { goTab("shopping") },
                 )
             }
             composable("cart/compare") {

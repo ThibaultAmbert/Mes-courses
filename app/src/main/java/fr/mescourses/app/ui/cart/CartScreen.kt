@@ -121,6 +121,7 @@ fun CartScreen(
     onOpenSite: (Retailer, String) -> Unit,
     onChooseStore: (Retailer) -> Unit,
     onCompare: () -> Unit,
+    onStore: () -> Unit = {},
 ) {
     val vm = containerViewModel { CartViewModel(it) }
     val state by vm.state.collectAsStateWithLifecycle()
@@ -143,7 +144,8 @@ fun CartScreen(
 
     var reviewAt by rememberSaveable { mutableStateOf<Int?>(null) }
     ScreenScaffold(
-        title = "Panier",
+        title = "Courses",
+        below = { fr.mescourses.app.ui.shopping.CoursesSwitch(drive = true, onStore = onStore, onDrive = {}) },
         subtitle = receptionLabel(retailer, settings.storeName(retailer)),
         actions = {
             fr.mescourses.app.ui.components.RoundIconButton(

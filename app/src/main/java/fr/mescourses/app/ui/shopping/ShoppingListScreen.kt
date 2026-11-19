@@ -236,7 +236,7 @@ class ShoppingViewModel(private val c: AppContainer) : ViewModel() {
 }
 
 @Composable
-fun ShoppingListScreen(onOpenSettings: () -> Unit, onSendToCart: () -> Unit, onOpenRecipe: (Long) -> Unit = {}) {
+fun ShoppingListScreen(onOpenSettings: () -> Unit, onSendToCart: () -> Unit, onOpenRecipe: (Long) -> Unit = {}, onDrive: () -> Unit = onSendToCart) {
     val vm = containerViewModel { ShoppingViewModel(it) }
     val recipeIds by vm.recipeIds.collectAsStateWithLifecycle()
     val lines by vm.lines.collectAsStateWithLifecycle()
@@ -268,8 +268,9 @@ fun ShoppingListScreen(onOpenSettings: () -> Unit, onSendToCart: () -> Unit, onO
         contentWindowInsets = WindowInsets(0),
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
+            Column {
             PageTitle(
-                "Liste de courses",
+                "Courses",
                 subtitle = if (lines.isEmpty()) null else listOfNotNull(
                     "${lines.size} article${if (lines.size > 1) "s" else ""}",
                     recipes.takeIf { it > 0 }?.let { "$it recette${if (it > 1) "s" else ""}" },
@@ -293,6 +294,8 @@ fun ShoppingListScreen(onOpenSettings: () -> Unit, onSendToCart: () -> Unit, onO
                         )
                     }
                 }
+            }
+            CoursesSwitch(drive = false, onStore = {}, onDrive = onDrive)
             }
         },
         bottomBar = {
