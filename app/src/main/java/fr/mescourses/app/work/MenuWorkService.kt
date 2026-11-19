@@ -33,6 +33,7 @@ class MenuWorkService : Service() {
             this, NOTIFICATION_ID, notification(this, text),
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC else 0,
         )
+        started = true
         if (!active) {
             ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
             stopSelf(startId)
@@ -47,6 +48,7 @@ class MenuWorkService : Service() {
     }
 
     override fun onDestroy() {
+        started = false
         wakeLock?.takeIf { it.isHeld }?.release()
         wakeLock = null
         super.onDestroy()
@@ -61,6 +63,8 @@ class MenuWorkService : Service() {
         private val notifyLock = Any()
         @Volatile private var channelReady = false
         @Volatile private var active = false
+        /** Le service a appelé startForeground : on peut l'arrêter sans risque. */
+        @Volatile private var started = false
         @Volatile private var lastText: String? = null
         @Volatile private var lastNotifyAt = 0L
         @Volatile private var cachedOpenIntent: PendingIntent? = null
@@ -124,7 +128,9 @@ class MenuWorkService : Service() {
                 active = false
                 lastText = null
             }
-            runCatching { context.stopService(Intent(context, MenuWorkService::class.java)) }
+            // Arrêté avant d'avoir démarré, le service ferait planter l'appli (startForeground jamais appelé) :
+            // onStartCommand voit alors `active = false`, passe au premier plan puis s'arrête de lui-même.
+            if (started) runCatching { context.stopService(Intent(context, MenuWorkService::class.java)) }
         }
     }
 }

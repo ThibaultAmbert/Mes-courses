@@ -429,9 +429,9 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
         if (countIn(c.draft.get(), g) + pending >= target) return
         refilling.update { it + (g to pending + 1) }
         try {
-            val found = c.chef.keepAwake("Le chef cherche une autre proposition…") {
-                if (g == MealGroup.PLATS) bestToAdd() else searched(null, course = g.course)
-            }
+            // Pas de service au premier plan ici : l'appli est à l'écran, et un démarrage/arrêt en quelques
+            // millisecondes (plat pris parmi les recettes déjà trouvées) fait planter Android.
+            val found = if (g == MealGroup.PLATS) bestToAdd() else searched(null, course = g.course)
             val dish = found?.toDish(wishes().portions, g.course)
             if (dish == null || !reviewing.value) {
                 if (dish == null) _state.update { it.copy(message = "Plus d'autre ${g.label.lowercase().removeSuffix("s")} à proposer : tu pourras la choisir au récap.") }
