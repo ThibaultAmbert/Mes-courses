@@ -1,5 +1,9 @@
 package fr.mescourses.app.ui.cart
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -80,13 +84,23 @@ class CompareViewModel(private val c: AppContainer) : ViewModel() {
         start()
     }
 
-    fun start() {
+    /**
+     * Lance la comparaison. Sans [force], une comparaison récente (< 30 min) de la même liste est reprise telle quelle :
+     * aller voir le panier d'une enseigne puis revenir ne relance aucune recherche.
+     */
+    fun start(force: Boolean = false) {
         job?.cancel()
         job = viewModelScope.launch {
             val pending = c.pendingCompare.value
             c.pendingCompare.value = null
             val items = ShoppingListMerger.merge(pending?.items ?: c.shopping.all())
             val label = pending?.label ?: "Liste de courses"
+            val key = items.map { "${it.name}|${it.quantity}|${it.unit}|${it.source}" }
+            val cached = CompareCache.state
+            if (!force && cached != null && CompareCache.key == key && System.currentTimeMillis() - CompareCache.at < CACHE_MS) {
+                _state.value = cached.copy(label = label)
+                return@launch
+            }
             if (items.isEmpty()) {
                 _state.value = CompareState(label = label, error = "Rien à comparer : la liste est vide.")
                 return@launch
@@ -110,6 +124,13 @@ class CompareViewModel(private val c: AppContainer) : ViewModel() {
             } finally {
                 c.comparing.value = emptySet()
                 _state.update { it.copy(running = false) }
+                // Comparaison complète (toutes les enseignes ont répondu) : gardée pour les retours sur l'écran.
+                val done = _state.value
+                if (done.error == null && done.quotes.size == Retailer.entries.size && done.quotes.values.all { it.done || it.problem != null }) {
+                    CompareCache.key = key
+                    CompareCache.state = done
+                    CompareCache.at = System.currentTimeMillis()
+                }
             }
         }
     }
@@ -123,6 +144,15 @@ class CompareViewModel(private val c: AppContainer) : ViewModel() {
     override fun onCleared() {
         c.comparing.value = emptySet()
     }
+}
+
+private const val CACHE_MS = 30 * 60 * 1000L
+
+/** Dernière comparaison complète (même liste d'articles), partagée entre les ouvertures de l'écran. */
+private object CompareCache {
+    var key: List<String>? = null
+    var state: CompareState? = null
+    var at: Long = 0
 }
 
 private fun euros(v: Double) = String.format(java.util.Locale.FRANCE, "%.2f €", v)
@@ -171,18 +201,10 @@ fun CompareScreen(
             }
             if (state.quotes.values.any { it.found > 0 }) {
                 item { GroupLabel("Détail par article", Modifier.padding(top = 8.dp)) }
-                item {
-                    WhiteCard(padding = PaddingValues(14.dp)) {
-                        DetailHeader()
-                        state.items.indices.forEach { i ->
-                            HorizontalDivider(Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
-                            DetailRow(state.items[i], i, state.quotes)
-                        }
-                    }
-                }
+                items(state.items.indices.toList(), key = { "item-$it" }) { i -> DetailCard(state.items[i], i, state.quotes) }
             }
             if (!state.running) item {
-                SoftButton("Relancer la comparaison", onClick = vm::start, icon = Icons.Filled.Refresh)
+                SoftButton("Relancer la comparaison", onClick = { vm.start(force = true) }, icon = Icons.Filled.Refresh)
             }
         }
     }
@@ -251,40 +273,58 @@ private fun QuoteCard(
     }
 }
 
+/** Un article : pour chaque enseigne, la photo du produit retenu, son nom, bio / non bio et le prix (le moins cher en avant). */
 @Composable
-private fun DetailHeader() {
-    Row(Modifier.fillMaxWidth()) {
-        Text("Article", style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
-        Retailer.entries.forEach { r ->
-            Text(r.label.removePrefix("E."), style = MaterialTheme.typography.labelMedium, textAlign = TextAlign.End, modifier = Modifier.width(72.dp))
-        }
-    }
-}
-
-@Composable
-private fun DetailRow(item: ShoppingItem, index: Int, quotes: Map<Retailer, RetailerQuote>) {
-    // Prix de la ligne (prix unitaire × quantité proposée) ; le moins cher de la ligne en gras.
-    val prices = Retailer.entries.associateWith { r ->
-        quotes[r]?.lines?.getOrNull(index)?.let { l -> l.product?.price?.let { it * l.quantity } }
-    }
+private fun DetailCard(item: ShoppingItem, index: Int, quotes: Map<Retailer, RetailerQuote>) {
+    val lines = Retailer.entries.associateWith { r -> quotes[r]?.lines?.getOrNull(index) }
+    val prices = lines.mapValues { (_, l) -> l?.product?.price?.let { it * l.quantity } }
     val best = prices.values.filterNotNull().minOrNull()
-    Column {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(ShoppingListMerger.format(item), style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            Retailer.entries.forEach { r ->
-                val p = prices[r]
-                Text(
-                    p?.let(::euros) ?: "—",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = if (p != null && p == best && prices.values.count { it != null } > 1) FontWeight.Bold else FontWeight.Normal,
-                    textAlign = TextAlign.End,
-                    modifier = Modifier.width(72.dp),
-                )
+    val several = prices.values.count { it != null } > 1
+    WhiteCard(padding = PaddingValues(14.dp)) {
+        Text(ShoppingListMerger.format(item), style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Spacer(Modifier.height(8.dp))
+        Retailer.entries.forEachIndexed { n, r ->
+            if (n > 0) HorizontalDivider(Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
+            val l = lines[r]
+            val p = l?.product
+            val price = prices[r]
+            val cheapest = price != null && price == best && several
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (p != null) ProductThumb(p, 56) else Box(
+                    Modifier.size(56.dp).clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                    contentAlignment = Alignment.Center,
+                ) { Text("—", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        RetailerDot(r, 14.dp)
+                        Text(r.label.removePrefix("E."), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Text(
+                        p?.name ?: if (l == null) "En attente…" else "Introuvable",
+                        style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                        color = if (p == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+                    )
+                    if (p != null) Text(
+                        if (p.organic) "BIO" else "Non bio",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = if (p.organic) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.clip(RoundedCornerShape(6.dp))
+                            .background(if (p.organic) Color(0xFF5E9B3A) else MaterialTheme.colorScheme.surfaceContainerHigh)
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                    )
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        price?.let(::euros) ?: "—",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = if (cheapest) FontWeight.Bold else FontWeight.Normal,
+                        color = if (cheapest) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                    )
+                    if (cheapest) Text("le moins cher", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                    if (l != null && l.quantity > 1) Text("× ${l.quantity}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
-        }
-        val names = Retailer.entries.mapNotNull { r -> quotes[r]?.lines?.getOrNull(index)?.product?.let { "${r.label.removePrefix("E.").take(1)} : ${it.name}" } }
-        if (names.isNotEmpty()) {
-            Text(names.joinToString("  ·  "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
     }
 }

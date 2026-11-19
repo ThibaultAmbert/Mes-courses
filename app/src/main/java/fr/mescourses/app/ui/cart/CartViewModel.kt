@@ -242,11 +242,25 @@ class CartViewModel(private val c: AppContainer) : ViewModel() {
         if (r == c.activeRetailer.value) return
         c.activeRetailer.value = r
         val s = _state.value
+        // Panier déjà préparé chez l'ancienne enseigne : gardé pour un retour sans nouvelle recherche.
+        if (s.phase == Phase.VALIDATION || s.phase == Phase.TERMINE) byRetailer[s.retailer] = s
+        val cached = byRetailer[r]
+        if (cached != null && s.lines.isNotEmpty() && sameItems(cached, s)) {
+            job?.cancel()
+            _state.value = cached
+            return
+        }
         when (s.phase) {
             Phase.VALIDATION, Phase.RECHERCHE -> if (s.lines.isNotEmpty()) prepare(s.lines.map { it.item }, s.source) else reset()
             else -> { job?.cancel(); _state.value = CartState(retailer = r) }
         }
     }
+
+    /** Paniers déjà préparés, par enseigne (même liste d'articles) : changer d'enseigne et revenir ne relance rien. */
+    private val byRetailer = HashMap<Retailer, CartState>()
+
+    private fun sameItems(a: CartState, b: CartState): Boolean =
+        a.lines.map { it.item.name to it.item.quantity } == b.lines.map { it.item.name to it.item.quantity }
 
     /** Articles à comparer : ceux du panier en cours, sinon la liste de courses. */
     fun prepareCompare() {
