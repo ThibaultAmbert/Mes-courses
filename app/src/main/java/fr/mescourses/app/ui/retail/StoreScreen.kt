@@ -1,11 +1,13 @@
 package fr.mescourses.app.ui.retail
 
+import androidx.compose.runtime.LaunchedEffect
 import android.location.Geocoder
 import fr.mescourses.app.ui.components.Spinner
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -75,6 +77,14 @@ fun StoreScreen(retailer: Retailer, onBack: () -> Unit, onOpenSite: (String) -> 
         Retailer.AUCHAN -> ""
     }
 
+    var auchanReading by remember { mutableStateOf(false) }
+    if (retailer == Retailer.AUCHAN) LaunchedEffect(Unit) {
+        auchanReading = true
+        // La lecture du panier met à jour le libellé (« 🚚 Livraison à domicile · Auchan … » ou « Drive Auchan … »).
+        runCatchingCancellable { c.backend(retailer).cart() }
+        auchanReading = false
+    }
+
     fun search() = scope.launch {
         loading = true; error = null
         try {
@@ -130,6 +140,17 @@ fun StoreScreen(retailer: Retailer, onBack: () -> Unit, onOpenSite: (String) -> 
         ) {
             if (currentName.isNotBlank()) item { StatChip("Actuel : $currentName", emphasized = true) }
             if (retailer == Retailer.AUCHAN) {
+                // Le mode de réception (drive ou 🚚 livraison à domicile) se lit dans le panier : relu à l'ouverture.
+                item {
+                    if (auchanReading) Row(verticalAlignment = Alignment.CenterVertically) {
+                        fr.mescourses.app.ui.components.Spinner(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Text("Lecture du mode de réception dans ton panier Auchan…", Modifier.padding(start = 10.dp), style = MaterialTheme.typography.bodySmall)
+                    } else if (currentName.isBlank()) Text(
+                        "Mode de réception pas encore connu : ajoute un article à ton panier Auchan, il s'affichera ici.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 item {
                     InfoBanner(
                         "ℹ️",

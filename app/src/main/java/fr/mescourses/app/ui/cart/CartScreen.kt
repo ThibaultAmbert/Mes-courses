@@ -133,7 +133,7 @@ fun CartScreen(
     var showSafe by remember { mutableStateOf(false) }
     ScreenScaffold(
         title = "Panier",
-        subtitle = settings.storeName(retailer).ifBlank { "Drive ${retailer.label}" },
+        subtitle = receptionLabel(retailer, settings.storeName(retailer)),
         actions = {
             fr.mescourses.app.ui.components.RoundIconButton(Icons.Filled.Storefront, "Mon drive ${retailer.label}", { onChooseStore(retailer) })
         },
@@ -894,4 +894,12 @@ private fun SafeToggle(count: Int, done: Boolean, expanded: Boolean, onToggle: (
             Text(if (expanded) "Masquer" else "Afficher", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
+}
+
+
+/** Sous-titre du panier : le drive (ou la 🚚 livraison Auchan) lu ; sans information, on ne présume pas « drive ». */
+internal fun receptionLabel(retailer: Retailer, storeName: String): String = when {
+    storeName.isNotBlank() -> storeName
+    retailer == Retailer.AUCHAN -> "Auchan · drive ou livraison à lire dans le panier"
+    else -> "${retailer.label} · aucun drive choisi"
 }
