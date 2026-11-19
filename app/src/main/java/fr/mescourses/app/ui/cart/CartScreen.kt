@@ -2,6 +2,22 @@
 
 package fr.mescourses.app.ui.cart
 
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.text.style.TextAlign
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Balance
@@ -19,20 +35,17 @@ import fr.mescourses.app.ui.components.BusyBar
 import fr.mescourses.app.ui.components.Spinner
 import androidx.compose.ui.platform.LocalContext
 import coil.request.ImageRequest
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.layout.ContentScale
 import coil.compose.AsyncImage
 import fr.mescourses.core.carrefour.CarrefourRoutes
 import fr.mescourses.app.llm.ModelStatus
 import fr.mescourses.app.ui.components.ChefCard
 import fr.mescourses.app.ui.components.ModelLoadingCard
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
@@ -42,10 +55,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -130,11 +141,15 @@ fun CartScreen(
     val selected = state.lines.filter { it.included && it.product != null && it.status != LineStatus.AJOUTE }
     val total = state.lines.filter { it.included && it.product != null }.sumOf { (it.product?.price ?: 0.0) * it.quantity }
 
-    var showSafe by remember { mutableStateOf(false) }
+    var reviewAt by rememberSaveable { mutableStateOf<Int?>(null) }
     ScreenScaffold(
         title = "Panier",
         subtitle = receptionLabel(retailer, settings.storeName(retailer)),
         actions = {
+            fr.mescourses.app.ui.components.RoundIconButton(
+                Icons.Filled.AutoAwesome, "Courses avec le chef", { chatOpen = true },
+                container = fr.mescourses.app.ui.theme.Cuisine.SaffronLight,
+            )
             fr.mescourses.app.ui.components.RoundIconButton(Icons.Filled.Storefront, "Mon drive ${retailer.label}", { onChooseStore(retailer) })
         },
         onOpenSettings = onOpenSettings,
@@ -257,43 +272,14 @@ fun CartScreen(
                 }
             }
             if (state.phase != Phase.IDLE) {
-                val indexed = state.lines.withIndex().toList()
-                // Pendant la vérification : seulement ce qui demande une décision ; les correspondances sûres sont repliées.
-                val grouped = state.phase == Phase.VALIDATION || state.phase == Phase.TERMINE
-                val (review, safe) = if (grouped) indexed.partition { needsReview(it.value) } else indexed to emptyList()
-                if (grouped && review.isNotEmpty()) item(key = "h-review") {
-                    fr.mescourses.app.ui.components.GroupLabel(
-                        if (state.phase == Phase.TERMINE) "${review.size} à regarder" else "${review.size} à vérifier",
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                }
-                items(review, key = { "l-" + it.index }) { (index, line) ->
+                // Tous les articles, dans l'ordre ; un toucher sur une carte ouvre la revue en grand.
+                itemsIndexed(state.lines, key = { index, line -> "$index-${line.item.name}" }) { index, line ->
                     CartLineCard(
                         line = line,
                         editable = state.phase == Phase.VALIDATION,
                         onChange = { t -> vm.updateLine(index, t) },
-                        onAlternatives = { if (line.remembered) vm.moreChoices(index) else alternativesFor = index },
-                        onProduct = vm::openProduct,
+                        onOpen = { reviewAt = index },
                     )
-                }
-                if (safe.isNotEmpty()) {
-                    item(key = "h-safe") {
-                        SafeToggle(
-                            count = safe.size,
-                            done = state.phase == Phase.TERMINE,
-                            expanded = showSafe,
-                            onToggle = { showSafe = !showSafe },
-                        )
-                    }
-                    if (showSafe) items(safe, key = { "l-" + it.index }) { (index, line) ->
-                        CartLineCard(
-                            line = line,
-                            editable = state.phase == Phase.VALIDATION,
-                            onChange = { t -> vm.updateLine(index, t) },
-                            onAlternatives = { if (line.remembered) vm.moreChoices(index) else alternativesFor = index },
-                            onProduct = vm::openProduct,
-                        )
-                    }
                 }
             }
             // Articles du panier que le drive ne pourra pas servir : remplaçants proposés.
@@ -303,6 +289,18 @@ fun CartScreen(
             if (state.loadingInfo) item { Busy("Lecture du panier…") }
             state.cart?.let { cart -> item { CartSummary(retailer, cart, state.slots, onOpenWebCart = { open(site.webCart()) }) } }
         }
+    }
+
+    reviewAt?.let { start ->
+        if (state.lines.isNotEmpty()) CartReview(
+            lines = state.lines,
+            start = start.coerceIn(0, state.lines.lastIndex),
+            editable = state.phase == Phase.VALIDATION,
+            onChange = { index, t -> vm.updateLine(index, t) },
+            onSearch = { index -> if (state.lines[index].remembered) vm.moreChoices(index) else alternativesFor = index },
+            onProduct = vm::openProduct,
+            onDismiss = { reviewAt = null },
+        ) else reviewAt = null
     }
 
     alternativesFor?.let { index ->
@@ -354,7 +352,7 @@ private fun carrefourImage(url: String): ImageRequest {
 
 /** Vignette d'un produit (photo de l'enseigne, sinon emoji). */
 @Composable
-private fun ProductThumb(p: Product, size: Int) {
+internal fun ProductThumb(p: Product, size: Int) {
     Box(
         Modifier.size(size.dp).clip(RoundedCornerShape(10.dp)).background(Color.White),
         contentAlignment = Alignment.Center,
@@ -596,86 +594,203 @@ private fun BioBadge() {
     )
 }
 
+/** Carte d'un article du panier : grande photo, produit, prix ; toute la carte ouvre la revue en grand. */
 @Composable
 private fun CartLineCard(
     line: CartLine,
     editable: Boolean,
     onChange: ((CartLine) -> CartLine) -> Unit,
-    onAlternatives: () -> Unit,
-    onProduct: (Product) -> Unit,
+    onOpen: () -> Unit,
 ) {
     val product = line.product
-    Card(
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (line.included || line.status == LineStatus.AJOUTE) MaterialTheme.colorScheme.surfaceContainerLowest
-            else MaterialTheme.colorScheme.surfaceContainer,
-        ),
+    val dimmed = !line.included && line.status != LineStatus.AJOUTE
+    androidx.compose.material3.Surface(
+        onClick = onOpen,
+        shape = RoundedCornerShape(22.dp),
+        color = if (dimmed) MaterialTheme.colorScheme.surfaceContainer else MaterialTheme.colorScheme.surfaceContainerLowest,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Row(Modifier.padding(start = 4.dp, end = 12.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(
-                checked = line.included,
-                enabled = editable && product != null,
-                onCheckedChange = { checked -> onChange { it.copy(included = checked) } },
-            )
-            product?.let { p ->
-                Box(Modifier.padding(end = 10.dp).clickable { onProduct(p) }) { ProductThumb(p, 52) }
+        Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Box {
+                if (product != null) ProductThumb(product, 88)
+                else Box(
+                    Modifier.size(88.dp).clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                    contentAlignment = Alignment.Center,
+                ) { Text(if (line.status == LineStatus.A_CHERCHER) "…" else "?", style = MaterialTheme.typography.headlineSmall) }
+                // Inclure / exclure l'article (son propre toucher, sans ouvrir la revue).
+                if (editable && product != null) Box(
+                    Modifier.align(Alignment.TopStart).padding(4.dp).size(28.dp).clip(CircleShape)
+                        .background(if (line.included) MaterialTheme.colorScheme.onSurface else Color.White)
+                        .border(2.dp, if (line.included) Color.Transparent else MaterialTheme.colorScheme.outline, CircleShape)
+                        .clickable { onChange { it.copy(included = !it.included) } },
+                    contentAlignment = Alignment.Center,
+                ) { if (line.included) Icon(Icons.Filled.Check, "Inclus", tint = MaterialTheme.colorScheme.surface, modifier = Modifier.size(16.dp)) }
+                if (product?.organic == true) Box(Modifier.align(Alignment.BottomStart).padding(4.dp)) { BioBadge() }
             }
-            Column(Modifier.weight(1f)) {
-                Text(ShoppingListMerger.format(line.item), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(ShoppingListMerger.format(line.item), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 when (line.status) {
                     LineStatus.A_CHERCHER -> Text("Recherche…", style = MaterialTheme.typography.bodyMedium)
-                    LineStatus.INTROUVABLE -> {
-                        Text("Aucun produit trouvé", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
-                        line.note?.let { Text(it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                        if (editable) {
-                            TextButton(onClick = onAlternatives, contentPadding = PaddingValues(0.dp)) {
-                                Icon(Icons.Filled.Search, null, Modifier.size(16.dp))
-                                Text(" Modifier la recherche" + if (line.candidates.isNotEmpty()) " · voir les résultats" else "", style = MaterialTheme.typography.labelMedium)
-                            }
-                        }
-                    }
+                    LineStatus.INTROUVABLE -> Text("Aucun produit trouvé", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.error)
                     LineStatus.ERREUR -> Text(line.message ?: "Erreur", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, maxLines = 2)
                     else -> product?.let { p ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (p.organic) { BioBadge(); Spacer(Modifier.size(6.dp)) }
-                            Text(p.name, style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        }
-                        Text(
-                            listOfNotNull(p.brand, p.unitPrice).joinToString(" · "),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        line.note?.let { Text("⚠ $it", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.tertiary) }
-                        if (editable) {
-                            TextButton(onClick = onAlternatives, contentPadding = PaddingValues(0.dp)) {
-                                Icon(Icons.Filled.SwapHoriz, null, Modifier.size(16.dp))
-                                Text(
-                                    if (line.remembered) " Ton choix habituel · autres choix"
-                                    else if (line.candidates.size > 1) " ${line.candidates.size - 1} autre(s) choix · modifier la recherche"
-                                    else " Modifier la recherche",
-                                    style = MaterialTheme.typography.labelMedium,
-                                )
-                            }
+                        Text(p.name, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        listOfNotNull(p.brand, p.unitPrice).joinToString(" · ").takeIf { it.isNotBlank() }?.let {
+                            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
                 }
+                line.note?.let { Text(it, style = MaterialTheme.typography.labelMedium, color = Color(0xFF9A5B12), maxLines = 2, overflow = TextOverflow.Ellipsis) }
+                if (line.remembered) Text("Ton choix habituel", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.tertiary)
             }
-            Column(horizontalAlignment = Alignment.End) {
-                product?.price?.let { Text(euros(it * line.quantity), style = MaterialTheme.typography.titleSmall) }
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                product?.price?.let { Text(euros(it * line.quantity), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold) }
                 when (line.status) {
                     LineStatus.AJOUTE -> Icon(Icons.Filled.CheckCircle, "Ajouté", tint = MaterialTheme.colorScheme.primary)
                     LineStatus.ERREUR -> Icon(Icons.Filled.ErrorOutline, "Erreur", tint = MaterialTheme.colorScheme.error)
-                    else -> if (product != null && editable) {
-                        MiniStepper("×", line.quantity, { q -> onChange { it.copy(quantity = q.coerceAtLeast(1)) } }, true, "Quantité")
-                    }
+                    else -> if (line.quantity > 1) Text("× ${line.quantity}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
     }
 }
 
+/**
+ * Revue en grand des articles du panier : une page par article, glisser à gauche / à droite pour passer au suivant /
+ * au précédent. Photo en grand, produit, prix, quantité, inclusion et autres choix proposés par le drive.
+ */
+@Composable
+private fun CartReview(
+    lines: List<CartLine>,
+    start: Int,
+    editable: Boolean,
+    onChange: (Int, (CartLine) -> CartLine) -> Unit,
+    onSearch: (Int) -> Unit,
+    onProduct: (Product) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val pager = androidx.compose.foundation.pager.rememberPagerState(initialPage = start) { lines.size }
+    val scope = rememberCoroutineScope()
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+    ) {
+        androidx.compose.material3.Surface(color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxSize()) {
+            Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    fr.mescourses.app.ui.components.RoundIconButton(Icons.Filled.Close, "Fermer", onDismiss)
+                    Text(
+                        "${pager.currentPage + 1} / ${lines.size}",
+                        style = MaterialTheme.typography.titleMedium,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.weight(1f),
+                    )
+                    fr.mescourses.app.ui.components.RoundIconButton(
+                        Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Article précédent",
+                        { scope.launch { pager.animateScrollToPage(pager.currentPage - 1) } },
+                        enabled = pager.currentPage > 0,
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    fr.mescourses.app.ui.components.RoundIconButton(
+                        Icons.AutoMirrored.Filled.KeyboardArrowRight, "Article suivant",
+                        { scope.launch { pager.animateScrollToPage(pager.currentPage + 1) } },
+                        enabled = pager.currentPage < lines.lastIndex,
+                    )
+                }
+                androidx.compose.foundation.pager.HorizontalPager(
+                    state = pager,
+                    contentPadding = PaddingValues(horizontal = 20.dp),
+                    pageSpacing = 12.dp,
+                    modifier = Modifier.weight(1f),
+                ) { index ->
+                    val line = lines.getOrNull(index) ?: return@HorizontalPager
+                    ReviewPage(
+                        line = line,
+                        editable = editable,
+                        onChange = { t -> onChange(index, t) },
+                        onSearch = { onSearch(index) },
+                        onProduct = onProduct,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReviewPage(line: CartLine, editable: Boolean, onChange: ((CartLine) -> CartLine) -> Unit, onSearch: () -> Unit, onProduct: (Product) -> Unit) {
+    val product = line.product
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        // Grande photo.
+        Box(
+            Modifier.fillMaxWidth().height(280.dp).clip(RoundedCornerShape(28.dp)).background(Color.White)
+                .then(if (product != null) Modifier.clickable { onProduct(product) } else Modifier),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (product != null) ProductThumb(product, 250)
+            else Text(if (line.status == LineStatus.A_CHERCHER) "Recherche…" else "Aucun produit", style = MaterialTheme.typography.titleMedium)
+            if (product?.organic == true) Box(Modifier.align(Alignment.TopStart).padding(12.dp)) { BioBadge() }
+        }
+        Text(ShoppingListMerger.format(line.item), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (product != null) {
+            Text(product.name, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            listOfNotNull(product.brand, product.packaging, product.unitPrice).joinToString(" · ").takeIf { it.isNotBlank() }?.let {
+                Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            product.promo?.let { Text("🏷 $it", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.tertiary) }
+            if (!product.available) Text("Indisponible dans ton drive", color = MaterialTheme.colorScheme.error)
+        }
+        line.note?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = Color(0xFF9A5B12)) }
+        if (line.status == LineStatus.ERREUR) Text(line.message ?: "Erreur", color = MaterialTheme.colorScheme.error)
+
+        // Prix, quantité, inclusion.
+        if (product != null) fr.mescourses.app.ui.components.WhiteCard(padding = PaddingValues(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Prix", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(product.price?.let { euros(it * line.quantity) } ?: "—", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                }
+                if (editable) MiniStepper("×", line.quantity, { q -> onChange { it.copy(quantity = q.coerceAtLeast(1)) } }, true, "Quantité")
+                else Text("× ${line.quantity}", style = MaterialTheme.typography.titleMedium)
+            }
+            if (editable) Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
+                Text("Mettre au panier", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                androidx.compose.material3.Switch(checked = line.included, onCheckedChange = { v -> onChange { it.copy(included = v) } })
+            }
+        }
+
+        // Autres choix du drive.
+        val others = line.candidates.withIndex().filter { it.index != line.selected }.take(12)
+        if (others.isNotEmpty()) {
+            fr.mescourses.app.ui.components.GroupLabel("Autres choix")
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(others, key = { it.index }) { (i, p) ->
+                    androidx.compose.material3.Surface(
+                        onClick = { if (editable) onChange { it.copy(selected = i, status = LineStatus.PROPOSE, included = true) } else onProduct(p) },
+                        shape = RoundedCornerShape(18.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                        modifier = Modifier.width(132.dp),
+                    ) {
+                        Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { ProductThumb(p, 96) }
+                            Text(p.name, style = MaterialTheme.typography.labelMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                if (p.organic) BioBadge()
+                                Text(p.price?.let(::euros) ?: "—", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                            }
+                            if (!p.available) Text("Indisponible", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+            }
+        }
+        if (editable) fr.mescourses.app.ui.components.SoftButton("Modifier la recherche", onClick = onSearch, icon = Icons.Filled.Search, modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(16.dp))
+    }
+}
 
 /**
  * Choix du produit d'une ligne : recherche modifiable (relancée pour cette seule ligne et mémorisée),
@@ -800,11 +915,6 @@ private fun RetailerAppButton(retailer: Retailer) {
 }
 
 
-/** Une ligne demande-t-elle un regard (introuvable, erreur, remarque, décochée) ? Sinon c'est une correspondance sûre. */
-private fun needsReview(line: CartLine): Boolean =
-    line.status == LineStatus.INTROUVABLE || line.status == LineStatus.ERREUR || line.status == LineStatus.A_CHERCHER ||
-        line.note != null || !line.included
-
 /** Barre du bas du panier : fond crème, ombre légère. */
 @Composable
 private fun CartBottomBar(content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit) {
@@ -872,29 +982,6 @@ private fun CompareEntry(onClick: () -> Unit) {
     }
 }
 
-/** « n correspondances sûres » : repliées par défaut, un toucher les affiche. */
-@Composable
-private fun SafeToggle(count: Int, done: Boolean, expanded: Boolean, onToggle: () -> Unit) {
-    androidx.compose.material3.Surface(
-        onClick = onToggle,
-        shape = RoundedCornerShape(20.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLowest,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Box(Modifier.size(40.dp).clip(CircleShape).background(fr.mescourses.app.ui.theme.Cuisine.BasilLight), contentAlignment = Alignment.Center) {
-                Icon(Icons.Filled.Check, null, tint = fr.mescourses.app.ui.theme.Cuisine.Coffee, modifier = Modifier.size(20.dp))
-            }
-            Text(
-                if (done) "$count produit${if (count > 1) "s" else ""} ajouté${if (count > 1) "s" else ""}"
-                else "$count correspondance${if (count > 1) "s" else ""} sûre${if (count > 1) "s" else ""}",
-                style = MaterialTheme.typography.titleSmall,
-                modifier = Modifier.weight(1f),
-            )
-            Text(if (expanded) "Masquer" else "Afficher", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
 
 
 /** Sous-titre du panier : le drive (ou la 🚚 livraison Auchan) lu ; sans information, on ne présume pas « drive ». */
