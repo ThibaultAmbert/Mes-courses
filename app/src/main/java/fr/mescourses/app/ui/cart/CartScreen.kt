@@ -151,6 +151,7 @@ fun CartScreen(
             fr.mescourses.app.ui.components.RoundIconButton(
                 Icons.Filled.AutoAwesome, "Courses avec le chef", { chatOpen = true },
                 container = fr.mescourses.app.ui.theme.Cuisine.SaffronLight,
+                tint = fr.mescourses.app.ui.theme.Cuisine.Coffee,
             )
             fr.mescourses.app.ui.components.RoundIconButton(Icons.Filled.Storefront, "Mon drive ${retailer.label}", { onChooseStore(retailer) })
         },

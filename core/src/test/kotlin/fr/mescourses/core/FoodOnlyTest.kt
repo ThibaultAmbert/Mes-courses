@@ -5,6 +5,7 @@ import fr.mescourses.core.carrefour.Product
 import fr.mescourses.core.model.ItemSource
 import fr.mescourses.core.model.ShoppingItem
 import fr.mescourses.core.shopping.ShoppingListMerger
+import kotlinx.coroutines.flow.toList
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -24,11 +25,40 @@ class FoodOnlyTest {
     }
 
     @Test
-    fun `article ajoute a la main - aucun filtre`() {
+    fun `aliment ajoute a la main - filtre aussi`() {
         val item = ShoppingItem(name = "Crème", source = ItemSource.MANUEL)
-        assertEquals(listOf(creme, visage), CartPlanner.foodOnly(item, listOf(creme, visage)))
+        assertEquals(listOf(creme), CartPlanner.foodOnly(item, listOf(creme, visage)))
+    }
+
+    @Test
+    fun `article non alimentaire ajoute a la main - aucun filtre`() {
         val l = ShoppingItem(name = "Lessive", source = ItemSource.MANUEL)
-        assertEquals(listOf(lessive), CartPlanner.foodOnly(l, listOf(lessive)))
+        assertEquals(listOf(lessive, creme), CartPlanner.foodOnly(l, listOf(lessive, creme)))
+        val c = ShoppingItem(name = "Croquettes pour chat", source = ItemSource.MANUEL)
+        assertEquals(listOf(croquettes), CartPlanner.foodOnly(c, listOf(croquettes)))
+        val s = ShoppingItem(name = "Shampooing", source = ItemSource.MANUEL)
+        val sh = Product(id = "6", name = "Shampooing doux 250 ml")
+        assertEquals(listOf(sh, creme), CartPlanner.foodOnly(s, listOf(sh, creme)))
+    }
+
+    @Test
+    fun `rayon donne par l'enseigne - produit d'hygiene ecarte`() {
+        val item = ShoppingItem(name = "Huile d'amande douce")
+        val soin = Product(id = "7", name = "Huile d'amande douce bio 100 ml", category = "Hygiène et beauté > Soin du corps")
+        val cuisine = Product(id = "8", name = "Huile d'amande douce 50 cl", category = "Épicerie salée > Huiles")
+        assertEquals(listOf(cuisine), CartPlanner.foodOnly(item, listOf(soin, cuisine)))
+    }
+
+    @Test
+    fun `choix memorise non alimentaire - oublie et recherche relancee`() = kotlinx.coroutines.test.runTest {
+        val memory = object : fr.mescourses.core.cart.ProductMemory {
+            override suspend fun get(key: String) = visage
+            override suspend fun remember(key: String, product: Product) {}
+        }
+        val backend = FakeFoodBackend(listOf(visage, creme))
+        val line = CartPlanner.propose(backend, listOf(ShoppingItem(name = "Crème fraîche")), memory = memory, pauseMs = 0).toList().single()
+        assertEquals(false, line.remembered)
+        assertEquals(creme, line.product)
     }
 
     @Test
@@ -46,5 +76,16 @@ class FoodOnlyTest {
             ),
         )
         assertEquals(ItemSource.MANUEL, merged.single().source)
+    }
+
+    private class FakeFoodBackend(val results: List<Product>) : fr.mescourses.core.cart.RetailerBackend {
+        override val retailer = fr.mescourses.core.retail.Retailer.AUCHAN
+        override suspend fun search(query: String, limit: Int) = results.take(limit)
+        override suspend fun searchWithUnavailable(query: String, limit: Int) = results.take(limit)
+        override suspend fun cart() = error("")
+        override suspend fun addToCart(product: Product, quantity: Int) = error("")
+        override suspend fun setQuantity(ean: String, quantity: Int) = error("")
+        override suspend fun timeslots(max: Int) = emptyList<fr.mescourses.core.carrefour.TimeSlot>()
+        override suspend fun sessionProbe() = null
     }
 }

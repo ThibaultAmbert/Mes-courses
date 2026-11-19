@@ -9,6 +9,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -85,10 +86,21 @@ private val AppShapes = Shapes(
     extraLarge = RoundedCornerShape(32.dp),
 )
 
+/** Mode nuit effectif pour un réglage d'apparence (« auto », « jour », « nuit »). */
 @Composable
-fun MesCoursesTheme(content: @Composable () -> Unit) {
+fun darkFor(mode: String): Boolean = when (mode) {
+    "jour" -> false
+    "nuit" -> true
+    else -> isSystemInDarkTheme()
+}
+
+/** Le thème affiché est-il sombre ? (suit le choix Jour / Nuit, pas seulement le téléphone) */
+val isDarkTheme: Boolean @Composable get() = MaterialTheme.colorScheme.background.luminance() < 0.5f
+
+@Composable
+fun MesCoursesTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
     MaterialTheme(
-        colorScheme = if (isSystemInDarkTheme()) Dark else Light,
+        colorScheme = if (dark) Dark else Light,
         typography = AppTypography,
         shapes = AppShapes,
         content = content,

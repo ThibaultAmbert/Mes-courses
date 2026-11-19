@@ -70,6 +70,8 @@ data class Settings(
     val menuWishes: String = "",
     /** Taille de contexte maximale demandée au moteur (0 = Auto selon le modèle). */
     val contextTokens: Int = 0,
+    /** Apparence : « auto » (suit le téléphone), « jour » ou « nuit ». */
+    val theme: String = "auto",
 ) {
     val preferredRetailer: Retailer get() = Retailer.parse(retailer)
 
@@ -146,6 +148,7 @@ class SettingsStore(private val context: Context, scope: CoroutineScope) {
         val lcUaMode = stringPreferencesKey("lc_ua_mode")
         val menuWishes = stringPreferencesKey("menu_wishes")
         val contextTokens = intPreferencesKey("context_tokens")
+        val theme = stringPreferencesKey("theme")
     }
 
     private fun Preferences.toSettings() = Settings(
@@ -180,6 +183,7 @@ class SettingsStore(private val context: Context, scope: CoroutineScope) {
         leclercUaMode = this[K.lcUaMode] ?: "ordinateur",
         menuWishes = this[K.menuWishes].orEmpty(),
         contextTokens = this[K.contextTokens] ?: 0,
+        theme = this[K.theme] ?: "auto",
     )
 
     val state: StateFlow<Settings> = context.dataStore.data
@@ -222,6 +226,7 @@ class SettingsStore(private val context: Context, scope: CoroutineScope) {
             prefs[K.lcUaMode] = s.leclercUaMode
             prefs[K.menuWishes] = s.menuWishes
             prefs[K.contextTokens] = s.contextTokens
+            prefs[K.theme] = s.theme
         }
     }
 }

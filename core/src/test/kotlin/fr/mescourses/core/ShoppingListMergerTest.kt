@@ -34,7 +34,7 @@ class ShoppingListMergerTest {
         val farine = merged.first { it.name == "Chocolat" }
         assertEquals(1.25, farine.quantity); assertEquals("kg", farine.unit)
         val oeufs = merged.first { ShoppingListMerger.key(it.name) == "oeuf" }
-        assertEquals(12.0, oeufs.quantity) // 7 œufs nécessaires => une boîte de 12
+        assertEquals(7.0, oeufs.quantity) // la vraie quantité, plus d'arrondi à la boîte
         // Le lait est un produit de placard : jamais dans la liste.
         assertTrue(merged.none { it.name == "Lait" })
         assertEquals("Crêpes, Gâteau", farine.origin)

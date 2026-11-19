@@ -31,6 +31,8 @@ data class Product(
      */
     val offerServiceId: String? = null,
     val description: String? = null,
+    /** Rayon / univers donné par l'enseigne (« Hygiène & beauté > Soin du corps »), quand il est connu. */
+    val category: String? = null,
 ) {
     val ean: String get() = identifiers["ean"] ?: identifiers["gtin13"] ?: identifiers["gtin"] ?: id
     val organic: Boolean get() = BIO_RE.containsMatchIn(name + " " + (brand ?: ""))

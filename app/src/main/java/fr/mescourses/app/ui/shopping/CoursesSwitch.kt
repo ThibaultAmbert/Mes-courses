@@ -39,8 +39,9 @@ fun CoursesSwitch(drive: Boolean, onStore: () -> Unit, onDrive: () -> Unit, modi
     }
 }
 
+/** Un choix d'une bascule en pilule (Courses, Apparence…). */
 @Composable
-private fun Segment(text: String, icon: androidx.compose.ui.graphics.vector.ImageVector, selected: Boolean, onClick: () -> Unit, modifier: Modifier) {
+fun Segment(text: String, icon: androidx.compose.ui.graphics.vector.ImageVector, selected: Boolean, onClick: () -> Unit, modifier: Modifier) {
     Surface(
         onClick = { if (!selected) onClick() },
         shape = RoundedCornerShape(50),

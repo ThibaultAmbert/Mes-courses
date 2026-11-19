@@ -121,13 +121,13 @@ class ShoppingCleanupTest {
         assertEquals("fromage de chèvre", fr.mescourses.core.cart.CartPlanner.searchQuery(ShoppingItem(name = "fromage de chèvre émietté")))
     }
 
-    @Test fun oeufs_par_douze() {
+    @Test fun oeufs_quantite_reelle() {
         fun eggs(vararg q: Double) = ShoppingListMerger.merge(q.map { ShoppingItem(name = "œufs", quantity = it) } + ShoppingItem(name = "jaune d'oeuf", quantity = 1.0))
             .single()
-        assertEquals(12.0, eggs(2.0).quantity)
+        assertEquals(3.0, eggs(2.0).quantity)
         assertEquals("Œufs", eggs(2.0).name)
-        assertEquals(24.0, eggs(10.0, 4.0).quantity)
-        assertEquals("oeufs x12", CartPlanner.searchQuery(ShoppingItem(name = "Œufs", quantity = 12.0)))
+        assertEquals(15.0, eggs(10.0, 4.0).quantity)
+        assertEquals("oeufs", CartPlanner.searchQuery(ShoppingItem(name = "Œufs", quantity = 12.0)))
     }
 
     @Test fun ingredients_en_objets() {
@@ -236,7 +236,7 @@ class ShoppingCleanupTest {
         val line = CartPlanner.searchLine(b, ShoppingItem(name = "Lardons"), preferOrganic = true)
         assertEquals("3", line.product?.id)
         assertEquals(2, line.relevantCount)
-        assertEquals("1", line.candidates.last().id)
+        assertTrue(line.candidates.none { it.id == "1" }) // les mouchoirs sont écartés (non alimentaire)
         val classic = CartPlanner.searchLine(FakeSearch(listOf(p("2", "Lardons fumés 200g"))), ShoppingItem(name = "Lardons"), preferOrganic = true)
         assertEquals("2", classic.product?.id)
         assertEquals("Pas de version bio au drive", classic.note)

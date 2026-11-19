@@ -562,7 +562,7 @@ private fun HomeScreen(
                 }
             }
             // Tunnel apéro / soirée : pas encore défini, la tuile n'a pas d'action.
-            Surface(shape = RoundedCornerShape(26.dp), color = Cuisine.Saffron, modifier = Modifier.weight(1f).fillMaxSize()) {
+            Surface(shape = RoundedCornerShape(26.dp), color = Cuisine.Saffron, contentColor = Cuisine.Coffee, modifier = Modifier.weight(1f).fillMaxSize()) {
                 Box {
                     Row(Modifier.align(Alignment.TopEnd).padding(top = 18.dp, end = 16.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         Box(Modifier.size(22.dp).clip(CircleShape).background(Color.White))

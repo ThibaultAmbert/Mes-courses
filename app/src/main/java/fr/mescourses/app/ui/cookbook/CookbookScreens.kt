@@ -301,7 +301,7 @@ private val RecipeStatus.icon get() = when (this) {
 /** Carte jaune « Découvrir de nouvelles recettes ». */
 @Composable
 private fun DiscoverEntry(onClick: () -> Unit) {
-    Surface(onClick = onClick, shape = RoundedCornerShape(22.dp), color = Cuisine.Saffron, modifier = Modifier.fillMaxWidth()) {
+    Surface(onClick = onClick, shape = RoundedCornerShape(22.dp), color = Cuisine.Saffron, contentColor = Cuisine.Coffee, modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.padding(start = 18.dp, end = 12.dp, top = 14.dp, bottom = 14.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text("Découvrir de nouvelles recettes", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = Cuisine.Coffee)

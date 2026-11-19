@@ -4,10 +4,15 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
+import android.graphics.Color
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
 import fr.mescourses.app.ui.AppRoot
 import fr.mescourses.app.ui.theme.MesCoursesTheme
+import fr.mescourses.app.ui.theme.darkFor
 
 class MainActivity : ComponentActivity() {
 
@@ -19,8 +24,19 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         // Après une recréation (rotation, retour de l'arrière-plan), le partage a déjà été traité.
         if (savedInstanceState == null) handle(intent)
+        val settings = (application as MesCoursesApp).container.settings
         setContent {
-            MesCoursesTheme {
+            val mode = settings.state.collectAsState().value.theme
+            val dark = darkFor(mode)
+            // Barres système accordées au choix Jour / Nuit (et pas seulement au réglage du téléphone).
+            DisposableEffect(dark) {
+                enableEdgeToEdge(
+                    statusBarStyle = if (dark) SystemBarStyle.dark(Color.TRANSPARENT) else SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT),
+                    navigationBarStyle = if (dark) SystemBarStyle.dark(Color.TRANSPARENT) else SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT),
+                )
+                onDispose {}
+            }
+            MesCoursesTheme(dark = dark) {
                 AppRoot(sharedUrl = sharedUrl.value, onSharedUrlConsumed = { sharedUrl.value = null })
             }
         }

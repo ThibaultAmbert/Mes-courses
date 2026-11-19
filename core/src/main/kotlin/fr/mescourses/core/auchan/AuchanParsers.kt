@@ -58,6 +58,11 @@ object AuchanParsers {
                 .map { it.text().trim() }.firstOrNull { it.isNotBlank() && it.length < 80 && !it.contains("cagnott", true) }
             val image: String? = imageOf(a)
             val sponsored = a.attr("data-list").startsWith("KAMINO")
+            // Rayon / univers de la fiche quand le site le donne : sert à écarter l'hygiène, l'entretien… (voir CartPlanner.foodOnly).
+            val category = a.attributes().asList()
+                .filter { at -> listOf("categ", "univers", "rayon", "department").any { at.key.contains(it, ignoreCase = true) } }
+                .map { it.value.trim() }.filter { it.isNotBlank() && it.length < 200 }.distinct()
+                .joinToString(" > ").ifBlank { null }
             sponsored to Product(
                 id = id,
                 name = title,
@@ -67,6 +72,7 @@ object AuchanParsers {
                 available = stock == null || stock > 0,
                 promo = promo,
                 imageUrl = image,
+                category = category,
                 identifiers = buildMap {
                     put("productId", id)
                     offer?.let { put("offerId", it) }

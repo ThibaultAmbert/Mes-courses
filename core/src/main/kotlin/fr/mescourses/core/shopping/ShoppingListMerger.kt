@@ -120,7 +120,7 @@ object ShoppingListMerger {
                 first.unit == PIECE -> 1.0
                 else -> quantities.sum()
             }
-            val (q, u) = if (isEgg(first.name)) eggBoxes(total) to null else humanize(total, first.unit)
+            val (q, u) = humanize(total, first.unit)
             ShoppingItem(
                 id = first.id,
                 name = first.name.replaceFirstChar { it.uppercase() },
@@ -134,9 +134,6 @@ object ShoppingListMerger {
     }
 
     fun isEgg(name: String): Boolean = key(name).split(' ').any { it == "oeuf" }
-
-    /** Les œufs s'achètent par boîte de 12 : 2 œufs → 12, 15 → 24. */
-    fun eggBoxes(count: Double?): Double = 12.0 * kotlin.math.max(1.0, kotlin.math.ceil((count ?: 1.0) / 12 - 1e-9))
 
     /** Repasse en kg / l au-delà de 1000 et arrondit raisonnablement. */
     private fun humanize(quantity: Double?, unit: String?): Pair<Double?, String?> {

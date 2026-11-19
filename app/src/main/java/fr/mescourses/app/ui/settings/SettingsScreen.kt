@@ -8,6 +8,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.BrightnessAuto
+import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Kitchen
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Storage
@@ -187,6 +190,7 @@ fun SettingsScreen(onBack: () -> Unit, onLogin: (Retailer) -> Unit, onChooseStor
                         update = update,
                         sessions = Retailer.entries.associateWith { r -> vm.session(r).collectAsState().value },
                         onOpen = { page = it },
+                        onTheme = { mode -> vm.update { it.copy(theme = mode) } },
                     )
 
                     testResult?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
@@ -510,6 +514,7 @@ private fun SettingsHome(
     update: fr.mescourses.app.data.UpdateStatus,
     sessions: Map<Retailer, SessionState>,
     onOpen: (String) -> Unit,
+    onTheme: (String) -> Unit,
 ) {
     fun plural(n: Int, word: String) = "$n $word" + if (n > 1) "s" else ""
     GroupLabel("Cuisine")
@@ -565,6 +570,21 @@ private fun SettingsHome(
             { onOpen("maj") },
             dot = if (update.updateAvailable) MaterialTheme.colorScheme.primary else null,
         )
+    }
+    GroupLabel("Apparence")
+    WhiteCard {
+        Row(
+            Modifier.fillMaxWidth().padding(4.dp).clip(RoundedCornerShape(50)).background(MaterialTheme.colorScheme.surfaceContainerLow).padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            listOf(
+                Triple("auto", "Auto", Icons.Filled.BrightnessAuto),
+                Triple("jour", "Jour", Icons.Filled.LightMode),
+                Triple("nuit", "Nuit", Icons.Filled.DarkMode),
+            ).forEach { (mode, label, icon) ->
+                fr.mescourses.app.ui.shopping.Segment(label, icon, selected = s.theme == mode, onClick = { onTheme(mode) }, modifier = Modifier.weight(1f))
+            }
+        }
     }
 }
 

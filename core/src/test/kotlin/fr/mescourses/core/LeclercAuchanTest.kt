@@ -230,6 +230,8 @@ class LeclercAuchanTest {
         assertEquals("https://cdn.auchan.fr/media/lait_540.jpg", lait.imageUrl)
         assertEquals("https://cdn.auchan.fr/media/oeufs_320.webp", p.first { it.id == "P3" }.imageUrl)
         assertNull(p.first { it.id == "P2" }.imageUrl)
+        assertEquals("Crèmerie & œufs", p.first { it.id == "P3" }.category)
+        assertNull(p.first { it.id == "P1" }.category)
     }
 
     @Test fun auchan_livraison_a_domicile() {

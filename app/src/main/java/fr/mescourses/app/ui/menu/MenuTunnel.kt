@@ -462,7 +462,7 @@ internal fun SwipeScreen(dishes: List<MenuDish>, targets: Triple<Int, Int, Int>,
             Surface(onClick = ::undo, enabled = history.isNotEmpty(), shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.size(48.dp)) {
                 Box(contentAlignment = Alignment.Center) { Icon(Icons.AutoMirrored.Filled.Undo, "Annuler le dernier choix", Modifier.size(20.dp)) }
             }
-            Surface(onClick = { decide(true) }, shape = CircleShape, color = Cuisine.Basil, shadowElevation = 3.dp, modifier = Modifier.size(68.dp)) {
+            Surface(onClick = { decide(true) }, shape = CircleShape, color = Cuisine.Basil, contentColor = Cuisine.Coffee, shadowElevation = 3.dp, modifier = Modifier.size(68.dp)) {
                 Box(contentAlignment = Alignment.Center) { Icon(Icons.Filled.Check, "Je garde", Modifier.size(30.dp), tint = Cuisine.Coffee) }
             }
         }
@@ -582,7 +582,7 @@ internal fun RecapScreen(
             Column(Modifier.weight(1f)) {
                 Text("Ta sélection", style = MaterialTheme.typography.headlineMedium)
                 // Touchée : la liste des ingrédients partagés, avec « Mieux mutualiser ».
-                Surface(onClick = onShowSharing, shape = RoundedCornerShape(50), color = Cuisine.BasilLight, modifier = Modifier.padding(top = 4.dp)) {
+                Surface(onClick = onShowSharing, shape = RoundedCornerShape(50), color = Cuisine.BasilLight, contentColor = Cuisine.Coffee, modifier = Modifier.padding(top = 4.dp)) {
                     Row(Modifier.padding(start = 12.dp, end = 6.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text("$articles articles · $shared ingrédients partagés", style = MaterialTheme.typography.labelLarge, color = Cuisine.Coffee)
                         Icon(Icons.AutoMirrored.Filled.ArrowForward, "Voir les ingrédients partagés", Modifier.padding(start = 4.dp).size(16.dp), tint = Cuisine.Coffee)
@@ -602,7 +602,7 @@ internal fun RecapScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             if (missing > 0) item {
-                Surface(shape = RoundedCornerShape(22.dp), color = Cuisine.SaffronLight) {
+                Surface(shape = RoundedCornerShape(22.dp), color = Cuisine.SaffronLight, contentColor = Cuisine.Coffee) {
                     Row(Modifier.padding(start = 16.dp, end = 12.dp, top = 14.dp, bottom = 14.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(if (missing == 1) "1 plat manque" else "$missing plats manquent", style = MaterialTheme.typography.titleSmall, color = Cuisine.Coffee)
@@ -897,7 +897,7 @@ internal fun WeekScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             item {
-                Surface(onClick = onOpenShopping, shape = RoundedCornerShape(22.dp), color = Cuisine.Saffron) {
+                Surface(onClick = onOpenShopping, shape = RoundedCornerShape(22.dp), color = Cuisine.Saffron, contentColor = Cuisine.Coffee) {
                     Row(Modifier.padding(start = 18.dp, end = 14.dp, top = 14.dp, bottom = 14.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text("Ta liste de courses est prête", style = MaterialTheme.typography.titleSmall, color = Cuisine.Coffee)

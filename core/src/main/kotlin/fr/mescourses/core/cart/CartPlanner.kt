@@ -1,7 +1,6 @@
 package fr.mescourses.core.cart
 
 import fr.mescourses.core.shopping.Aisle
-import fr.mescourses.core.model.ItemSource
 import fr.mescourses.core.runCatchingCancellable
 import fr.mescourses.core.carrefour.Product
 import fr.mescourses.core.ingredients.IngredientMapper
@@ -48,7 +47,7 @@ object CartPlanner {
         fr.mescourses.core.ingredients.FoodName.clean(item.name)
             .replace(Regex("""(?i)\b(frais|fraîche|fraiches|fraîches|bio|émincé|émincée|haché|hachée|en dés|râpé|râpée)\b"""), " ")
             .replace(Regex("\\s+"), " ").trim().ifEmpty { item.name }
-            .let { if (ShoppingListMerger.isEgg(it)) "oeufs x12" else it }
+            .let { if (ShoppingListMerger.isEgg(it)) "oeufs" else it }
 
     /** Recherche à utiliser : celle corrigée par l'utilisateur pour cet ingrédient, sinon la recherche calculée. */
     fun queryFor(item: ShoppingItem, custom: Map<String, String> = emptyMap()): String =
@@ -121,14 +120,24 @@ object CartPlanner {
     }
 
     /**
-     * Article venu d'une recette (donc un aliment) : on écarte les produits non alimentaires que le drive renvoie
-     * (« crème » → crème visage, « persil » → lingettes…). Un article ajouté à la main (lessive, shampooing…) garde
-     * tous les résultats. Si le filtre écarterait tout, la liste d'origine est gardée.
+     * Article alimentaire (venu d'une recette ou saisi à la main) : on écarte les produits non alimentaires que le
+     * drive renvoie (« crème » → crème visage, « persil » → lingettes…). Un article lui-même non alimentaire
+     * (lessive, shampooing, croquettes…) garde tous les résultats. Si le filtre écarterait tout, la liste d'origine
+     * est gardée.
      */
     fun foodOnly(item: ShoppingItem, products: List<Product>): List<Product> {
-        if (item.source != ItemSource.RECETTE || Aisle.of(item.name) == Aisle.MAISON) return products
-        return products.filterNot { Aisle.isNonFood(it.name) }.ifEmpty { products }
+        if (!isFoodItem(item)) return products
+        return products.filterNot { isNonFoodProduct(it) }.ifEmpty { products }
     }
+
+    /** L'article de la liste est un aliment (pas de l'entretien, de l'hygiène ou pour les animaux). */
+    fun isFoodItem(item: ShoppingItem): Boolean = Aisle.of(item.name) != Aisle.MAISON && !Aisle.isNonFood(item.name)
+
+    /** Produit non alimentaire, d'après son nom et son rayon quand l'enseigne le donne. */
+    fun isNonFoodProduct(p: Product): Boolean =
+        Aisle.isNonFood(p.name) || p.category?.let { c -> Aisle.isNonFood(c) || NON_FOOD_CATEGORY.containsMatchIn(c) } == true
+
+    private val NON_FOOD_CATEGORY = Regex("""(?i)hygi[eè]ne|beaut[eé]|entretien|droguerie|parapharmacie|animal|animaux|b[eé]b[eé] soin""")
 
     /**
      * Propose un produit par article. Un produit déjà choisi pour cet ingrédient (mémoire) est présélectionné
@@ -148,7 +157,8 @@ object CartPlanner {
         val availability = remembered.values.filterNotNull().map { it.ean }.takeIf { it.isNotEmpty() }
             ?.let { runCatchingCancellable { backend.availability(it) }.getOrDefault(emptyMap()) }.orEmpty()
         for (item in items) {
-            val known = remembered[item]
+            // Un vieux choix non alimentaire pour un aliment (crème visage pour « crème fraîche ») est oublié.
+            val known = remembered[item]?.takeUnless { isFoodItem(item) && isNonFoodProduct(it) }
             if (known != null && availability[known.ean] != false) {
                 emit(CartLine(item, listOf(known), status = LineStatus.PROPOSE, remembered = true))
                 continue

@@ -41,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -210,9 +211,19 @@ fun GroupLabel(text: String, modifier: Modifier = Modifier, color: Color = Mater
 
 /** Pastille d'icône carrée arrondie, sur fond coloré. */
 @Composable
-fun IconTile(icon: ImageVector, background: Color, size: Dp = 42.dp, tint: Color = MaterialTheme.colorScheme.onSurface) {
-    Box(Modifier.size(size).clip(RoundedCornerShape(size * 0.33f)).background(background), contentAlignment = Alignment.Center) {
-        Icon(icon, null, tint = tint, modifier = Modifier.size(size * 0.48f))
+fun IconTile(icon: ImageVector, background: Color, size: Dp = 42.dp, tint: Color? = null) {
+    // Les fonds sont des pastels clairs : en mode nuit, pastille translucide et icône dans la couleur pastel,
+    // sinon l'icône claire disparaît sur le fond clair.
+    val dark = fr.mescourses.app.ui.theme.isDarkTheme
+    val pastel = background.luminance() > 0.5f
+    val bg = if (dark && pastel) background.copy(alpha = 0.18f) else background
+    val fg = tint ?: when {
+        dark && pastel -> background
+        pastel -> fr.mescourses.app.ui.theme.Cuisine.Coffee
+        else -> MaterialTheme.colorScheme.onSurface
+    }
+    Box(Modifier.size(size).clip(RoundedCornerShape(size * 0.33f)).background(bg), contentAlignment = Alignment.Center) {
+        Icon(icon, null, tint = fg, modifier = Modifier.size(size * 0.48f))
     }
 }
 

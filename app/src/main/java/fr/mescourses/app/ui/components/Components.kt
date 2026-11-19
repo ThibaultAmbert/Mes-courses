@@ -11,7 +11,6 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -75,7 +74,7 @@ fun DishArt(
     emojiSize: Int = 44,
 ) {
     val visual = remember(title, ingredients) { DishVisuals.of(title, ingredients) }
-    val dark = isSystemInDarkTheme()
+    val dark = fr.mescourses.app.ui.theme.isDarkTheme
     val colors = remember(visual.category, dark) { gradientFor(visual.category, dark) }
     Box(
         modifier.background(Brush.linearGradient(colors)),
