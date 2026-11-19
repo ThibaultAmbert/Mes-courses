@@ -126,7 +126,8 @@ object ShoppingListMerger {
                 name = first.name.replaceFirstChar { it.uppercase() },
                 quantity = q,
                 unit = u,
-                source = if (group.any { it.source == ItemSource.RECETTE }) ItemSource.RECETTE else ItemSource.MANUEL,
+                // Un article ajouté à la main l'emporte : il ne doit pas subir le filtre « nourriture seulement » du drive.
+                source = if (group.all { it.source == ItemSource.RECETTE }) ItemSource.RECETTE else ItemSource.MANUEL,
                 origin = group.mapNotNull { it.origin }.distinct().joinToString(", ").ifEmpty { null },
             )
         }

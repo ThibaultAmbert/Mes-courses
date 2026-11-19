@@ -46,6 +46,23 @@ enum class Aisle(val label: String, val emoji: String) {
             }
         }
 
+        /** Mots d'un produit non alimentaire que le rayon seul ne repère pas (« crème hydratante visage »…). */
+        private val NON_FOOD = listOf(
+            "visage", "corps", "mains", "cheveux", "levres", "soin", "hydratant", "hydratante", "cosmetique", "maquillage",
+            "demaquillant", "creme solaire", "apres soleil", "rasage", "epilation", "shampooing", "apres shampooing",
+            "nettoyant", "detergent", "desinfectant", "detartrant", "adoucissant", "javel", "vaisselle", "lave vaisselle",
+            "parfum d ambiance", "desodorisant", "bougie", "insecticide",
+            "chat", "chien", "chaton", "chiot", "croquette", "litiere", "animal", "animaux", "oiseau", "rongeur",
+            "lingette", "coton", "pansement", "dentaire", "bain de bouche",
+        ).map { " " + ShoppingListMerger.key(it) + " " }
+
+        /** Produit non alimentaire (hygiène, entretien, cosmétique, animaux) d'après son nom. */
+        fun isNonFood(productName: String): Boolean {
+            if (of(productName) == MAISON) return true
+            val k = " " + ShoppingListMerger.key(productName) + " "
+            return NON_FOOD.any { k.contains(it) }
+        }
+
         /**
          * Le mot-clé trouvé le plus tôt dans le nom décide, le plus long en cas d'égalité :
          * « lait de coco » → épicerie (pas crèmerie), « crème de marrons » → crèmerie… à corriger à la main au besoin.

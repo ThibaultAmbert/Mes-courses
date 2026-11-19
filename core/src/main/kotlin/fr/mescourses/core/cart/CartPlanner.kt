@@ -1,5 +1,7 @@
 package fr.mescourses.core.cart
 
+import fr.mescourses.core.shopping.Aisle
+import fr.mescourses.core.model.ItemSource
 import fr.mescourses.core.runCatchingCancellable
 import fr.mescourses.core.carrefour.Product
 import fr.mescourses.core.ingredients.IngredientMapper
@@ -119,6 +121,16 @@ object CartPlanner {
     }
 
     /**
+     * Article venu d'une recette (donc un aliment) : on écarte les produits non alimentaires que le drive renvoie
+     * (« crème » → crème visage, « persil » → lingettes…). Un article ajouté à la main (lessive, shampooing…) garde
+     * tous les résultats. Si le filtre écarterait tout, la liste d'origine est gardée.
+     */
+    fun foodOnly(item: ShoppingItem, products: List<Product>): List<Product> {
+        if (item.source != ItemSource.RECETTE || Aisle.of(item.name) == Aisle.MAISON) return products
+        return products.filterNot { Aisle.isNonFood(it.name) }.ifEmpty { products }
+    }
+
+    /**
      * Propose un produit par article. Un produit déjà choisi pour cet ingrédient (mémoire) est présélectionné
      * sans recherche ; sinon on cherche (bio d'abord si demandé).
      */
@@ -159,7 +171,7 @@ object CartPlanner {
      * gardés (aucune requête de plus) ; ceux sans rapport avec la recherche ne sont jamais présélectionnés.
      */
     suspend fun searchLine(backend: RetailerBackend, item: ShoppingItem, preferOrganic: Boolean, query: String = searchQuery(item)): CartLine = try {
-        val found = backend.searchWithUnavailable(query, Int.MAX_VALUE)
+        val found = foodOnly(item, backend.searchWithUnavailable(query, Int.MAX_VALUE))
         val ranked = rank(item, found, preferOrganic, query)
         val relevant = ranked.filter { isRelevant(query, it) }
         val others = ranked.filterNot { isRelevant(query, it) }

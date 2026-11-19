@@ -182,7 +182,7 @@ class ShoppingViewModel(private val c: AppContainer) : ViewModel() {
                 listOf(
                     ShoppingItem(
                         name = clean, quantity = quantity, unit = unit, origin = line.origin, checked = line.checked,
-                        source = if (line.sources.any { it.source == ItemSource.RECETTE }) ItemSource.RECETTE else ItemSource.MANUEL,
+                        source = if (line.sources.all { it.source == ItemSource.RECETTE }) ItemSource.RECETTE else ItemSource.MANUEL,
                     ),
                 ),
             )
