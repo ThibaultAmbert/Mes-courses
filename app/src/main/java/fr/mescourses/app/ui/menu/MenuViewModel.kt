@@ -45,6 +45,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -372,14 +373,89 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
         step.value = MenuStep.PROPOSITION
     }
 
-    /** Fin du swipe : les plats passés quittent le menu et ne seront plus reproposés. */
-    fun finishReview(passed: Set<String>) = viewModelScope.launch {
-        if (passed.isNotEmpty()) {
-            val list = c.draft.get()
-            list.filter { it.title in passed }.forEach { reject(it) }
-            c.draft.set(list.filterNot { it.title in passed })
+    // ---------- Swipe : on propose jusqu'à avoir le compte d'entrées, de plats et de desserts ----------
+
+    /** Cartes du swipe, dans l'ordre : le brouillon au départ, puis les remplaçantes (jamais réordonnées). */
+    val deck = MutableStateFlow<List<MenuDish>>(emptyList())
+
+    /** Parties du repas pour lesquelles le chef cherche une autre proposition. */
+    internal val refilling = MutableStateFlow<Map<MealGroup, Int>>(emptyMap())
+
+    /** Carte affichée par le swipe : les remplaçantes arrivent juste après. */
+    @Volatile private var swipeCursor = 0
+
+    /** Les retraits et ajouts du swipe se suivent sans s'écraser. */
+    private val draftLock = kotlinx.coroutines.sync.Mutex()
+    private suspend fun editDraft(f: (List<MenuDish>) -> List<MenuDish>) = draftLock.withLock { c.draft.set(f(c.draft.get())) }
+
+    private suspend fun startReview() {
+        deck.value = c.draft.get().sortedBy { it.courseRank }
+        refilling.value = emptyMap()
+        swipeCursor = 0
+        reviewing.value = true
+    }
+
+    fun swipeAt(index: Int) { swipeCursor = index }
+
+    private fun sameDish(a: MenuDish, b: MenuDish) = a.title == b.title && a.sourceUrl == b.sourceUrl
+
+    /**
+     * « Je passe » : la recette quitte le menu et ne sera plus reproposée. S'il manque alors une recette de cette
+     * partie du repas, le chef en cherche une autre, qui arrive juste après dans le swipe.
+     */
+    fun pass(dish: MenuDish, dislike: Boolean = true) {
+        if (dislike) reject(dish)
+        viewModelScope.launch(Dispatchers.Default) {
+            editDraft { l -> l.filterNot { sameDish(it, dish) } }
+            if (dislike) refill(groupOf(dish.course), after = dish)
         }
+    }
+
+    /** Annulation d'un « je passe » : la recette revient au menu. */
+    fun unpass(dish: MenuDish) {
+        dish.sourceUrl?.let { rejected -= it }
+        rejected -= dish.title
+        viewModelScope.launch(Dispatchers.Default) {
+            editDraft { l -> if (l.none { sameDish(it, dish) }) l + dish else l }
+        }
+    }
+
+    private fun countIn(list: List<MenuDish>, g: MealGroup) = list.count { groupOf(it.course) == g }
+
+    private suspend fun refill(g: MealGroup, after: MenuDish) {
+        val (starters, meals, desserts) = targets()
+        val target = when (g) { MealGroup.ENTREES -> starters; MealGroup.PLATS -> meals; MealGroup.DESSERTS -> desserts }
+        val pending = refilling.value[g] ?: 0
+        if (countIn(c.draft.get(), g) + pending >= target) return
+        refilling.update { it + (g to pending + 1) }
+        try {
+            val found = c.chef.keepAwake("Le chef cherche une autre proposition…") {
+                if (g == MealGroup.PLATS) bestToAdd() else searched(null, course = g.course)
+            }
+            val dish = found?.toDish(wishes().portions, g.course)
+            if (dish == null || !reviewing.value) {
+                if (dish == null) _state.update { it.copy(message = "Plus d'autre ${g.label.lowercase().removeSuffix("s")} à proposer : tu pourras la choisir au récap.") }
+                return
+            }
+            editDraft { it + dish }
+            deck.update { cards ->
+                val pos = maxOf(cards.indexOfFirst { sameDish(it, after) } + 1, swipeCursor + 1).coerceIn(0, cards.size)
+                cards.toMutableList().also { it.add(pos, dish) }
+            }
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            _state.update { it.copy(message = "Recherche impossible : ${e.message}") }
+        } finally {
+            refilling.update { m -> (m[g] ?: 1).minus(1).let { if (it <= 0) m - g else m + (g to it) } }
+            _state.update { it.copy(progress = null) }
+        }
+    }
+
+    /** Fin du swipe. [unseen] : cartes pas encore vues qui dépassent le compte demandé, retirées du menu. */
+    fun finishReview(unseen: List<MenuDish> = emptyList()) = viewModelScope.launch {
+        if (unseen.isNotEmpty()) editDraft { l -> l.filterNot { d -> unseen.any { sameDish(it, d) } } }
         reviewing.value = false
+        deck.value = emptyList()
     }
 
     /** Nombre de plats voulus par partie du repas (entrées, plats, desserts). */
@@ -588,7 +664,7 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
                     }
                 }
                 // Les propositions se passent en revue une par une avant le récap.
-                if (c.draft.get().isNotEmpty() && step.value == MenuStep.PROPOSITION) reviewing.value = true
+                if (c.draft.get().isNotEmpty() && step.value == MenuStep.PROPOSITION) startReview()
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 chatError(e)

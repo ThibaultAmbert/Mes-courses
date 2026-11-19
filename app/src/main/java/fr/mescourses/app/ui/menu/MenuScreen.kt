@@ -134,6 +134,8 @@ fun MenuScreen(onOpenSettings: () -> Unit, onOpenRecipe: (Long) -> Unit, onOpenS
     val step by vm.step.collectAsStateWithLifecycle()
     val searching by vm.searching.collectAsStateWithLifecycle()
     val reviewing by vm.reviewing.collectAsStateWithLifecycle()
+    val deck by vm.deck.collectAsStateWithLifecycle()
+    val refilling by vm.refilling.collectAsStateWithLifecycle()
     val dishes by vm.dishes.collectAsStateWithLifecycle()
     val week by vm.week.collectAsStateWithLifecycle()
     val pendingSteps by vm.pendingSteps.collectAsStateWithLifecycle()
@@ -175,7 +177,7 @@ fun MenuScreen(onOpenSettings: () -> Unit, onOpenRecipe: (Long) -> Unit, onOpenS
         step == MenuStep.REGLAGES -> Screen.PARAMS
         step == MenuStep.SEMAINE -> Screen.WEEK
         searching || (dishes.isEmpty() && state.busy) -> Screen.SEARCH
-        reviewing && dishes.isNotEmpty() -> Screen.SWIPE
+        reviewing && deck.isNotEmpty() -> Screen.SWIPE
         else -> Screen.RECAP
     }
 
@@ -212,12 +214,15 @@ fun MenuScreen(onOpenSettings: () -> Unit, onOpenRecipe: (Long) -> Unit, onOpenS
                 )
                 Screen.SEARCH -> SearchScreen(progress = state.progress, modelLoading = state.model == ModelStatus.Loading, onCancel = vm::stop)
                 Screen.SWIPE -> SwipeScreen(
-                    dishes = dishes, targets = vm.targets(),
+                    deck = deck, targets = remember(deck.isEmpty()) { vm.targets() }, refilling = refilling.keys,
                     onOpen = { d ->
                         container.hintPortions(d.recipeId, d.sourceUrl, d.portions)
                         d.sourceUrl?.let(onOpenPreview) ?: d.recipeId?.let(onOpenRecipe)
                     },
-                    onFinish = { passed -> vm.finishReview(passed) },
+                    onAt = vm::swipeAt,
+                    onPass = { d, dislike -> vm.pass(d, dislike) },
+                    onUnpass = vm::unpass,
+                    onFinish = { unseen -> vm.finishReview(unseen) },
                 )
                 Screen.RECAP -> RecapScreen(
                     dishes = dishes, targets = remember(planned, dishes) { vm.targets() }, state = state, ready = ready,

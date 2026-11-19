@@ -323,30 +323,69 @@ private fun StepLine(label: String, done: Boolean, active: Boolean) {
 // ---------- Étape 2 : une recette par tuile ----------
 
 @Composable
-internal fun SwipeScreen(dishes: List<MenuDish>, targets: Triple<Int, Int, Int>, onOpen: (MenuDish) -> Unit, onFinish: (Set<String>) -> Unit) {
-    val cards = remember(dishes) { dishes.sortedBy { it.courseRank } }
+internal fun SwipeScreen(
+    deck: List<MenuDish>,
+    targets: Triple<Int, Int, Int>,
+    refilling: Set<MealGroup>,
+    onOpen: (MenuDish) -> Unit,
+    onAt: (Int) -> Unit,
+    /** « Je passe » ([dislike] = true) ou carte en trop, sautée (false). */
+    onPass: (MenuDish, Boolean) -> Unit,
+    onUnpass: (MenuDish) -> Unit,
+    /** Fin du swipe ; les cartes pas encore vues en trop sont données pour être retirées du menu. */
+    onFinish: (List<MenuDish>) -> Unit,
+) {
+    val cards = deck
     // Gardé quand on ouvre le détail d'une recette puis qu'on revient : le tri reprend où il en était.
+    // Historique : 1 = gardée, 0 = passée, 2 = sautée (sa partie du repas était déjà complète).
     var index by rememberSaveable { mutableIntStateOf(0) }
-    var history by rememberSaveable { mutableStateOf(arrayListOf<Boolean>()) }
+    var history by rememberSaveable { mutableStateOf(arrayListOf<Int>()) }
     val safeIndex = index.coerceIn(0, cards.size)
     var dragX by remember { mutableFloatStateOf(0f) }
     var dragging by remember { mutableStateOf(false) }
     val offset = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
     val currentX = { if (dragging) dragX else offset.value }
+    var finished by remember { mutableStateOf(false) }
 
-    fun passedTitles(): Set<String> = history.mapIndexedNotNull { i, kept ->
-        if (!kept) cards.getOrNull(i)?.title else null
-    }.toSet()
+    val keptCounts = remember(cards, history, safeIndex) {
+        MealGroup.entries.associateWith { g ->
+            history.indices.count { i -> i < safeIndex && history[i] == 1 && cards.getOrNull(i)?.let { groupOf(it.course) } == g }
+        }
+    }
+    fun full(g: MealGroup) = (keptCounts[g] ?: 0) >= g.target(targets)
+    val remaining = MealGroup.entries.sumOf { (it.target(targets) - (keptCounts[it] ?: 0)).coerceAtLeast(0) }
+
+    fun finish(unseen: List<MenuDish>) {
+        if (finished) return
+        finished = true
+        onFinish(unseen)
+    }
+
+    LaunchedEffect(safeIndex) { onAt(safeIndex) }
+    // Carte d'une partie déjà complète : sautée ; tout est complet : fin ; plus de carte ni de recherche : fin.
+    LaunchedEffect(safeIndex, cards, keptCounts, refilling) {
+        if (finished || offset.isRunning) return@LaunchedEffect
+        when {
+            MealGroup.entries.all(::full) -> finish(cards.drop(safeIndex))
+            safeIndex < cards.size && full(groupOf(cards[safeIndex].course)) -> {
+                onPass(cards[safeIndex], false)
+                history = ArrayList(history.take(safeIndex) + 2)
+                index = safeIndex + 1
+            }
+            safeIndex >= cards.size && refilling.isEmpty() -> finish(emptyList())
+        }
+    }
 
     suspend fun commitDecision(keep: Boolean) {
         val currentIdx = index.coerceIn(0, cards.size)
         if (currentIdx >= cards.size) return
+        val dish = cards[currentIdx]
         offset.animateTo(if (keep) 1600f else -1600f, tween(220))
-        history = ArrayList(history.take(currentIdx) + keep)
+        if (!keep) onPass(dish, true)
+        history = ArrayList(history.take(currentIdx) + if (keep) 1 else 0)
         index = currentIdx + 1
         offset.snapTo(0f)
-        if (index >= cards.size) onFinish(passedTitles())
     }
 
     fun decide(keep: Boolean) {
@@ -355,20 +394,20 @@ internal fun SwipeScreen(dishes: List<MenuDish>, targets: Triple<Int, Int, Int>,
     }
 
     fun undo() {
-        if (history.isEmpty() || offset.isRunning || dragging || safeIndex == 0) return
-        history = ArrayList(history.dropLast(1))
-        index = safeIndex - 1
-    }
-
-    val keptCounts = remember(cards, history, safeIndex) {
-        MealGroup.entries.associateWith { g ->
-            history.indices.count { i -> i < safeIndex && history[i] && cards.getOrNull(i)?.let { groupOf(it.course) } == g }
-        }
+        if (offset.isRunning || dragging) return
+        val h = ArrayList(history.take(safeIndex))
+        // Les cartes sautées reviennent avec la dernière vraie décision.
+        while (h.isNotEmpty() && h.last() == 2) { cards.getOrNull(h.lastIndex)?.let(onUnpass); h.removeAt(h.lastIndex) }
+        if (h.isEmpty()) return
+        if (h.last() == 0) cards.getOrNull(h.lastIndex)?.let(onUnpass)
+        h.removeAt(h.lastIndex)
+        history = h
+        index = h.size
     }
 
     Column(Modifier.fillMaxSize().navigationBarsPadding()) {
-        TunnelHeader(current = 2, onClose = { onFinish(passedTitles()) }) {
-            Text("${(safeIndex + 1).coerceAtMost(cards.size)} / ${cards.size}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        TunnelHeader(current = 2, onClose = { finish(emptyList()) }) {
+            Text(if (remaining > 0) "Encore $remaining à choisir" else "Complet", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             MealGroup.entries.forEach { g ->
@@ -449,7 +488,23 @@ internal fun SwipeScreen(dishes: List<MenuDish>, targets: Triple<Int, Int, Int>,
                             }
                         },
                 ) { SwipeCard(dish, currentX) }
-            }
+            } ?: if (refilling.isNotEmpty()) {
+                // Plus de carte : le chef cherche une autre proposition pour la partie qui n'a pas son compte.
+                Surface(shape = RoundedCornerShape(30.dp), color = MaterialTheme.colorScheme.surfaceContainerLowest, modifier = Modifier.fillMaxSize()) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                        Spinner(Modifier.size(36.dp), color = Cuisine.Tomato, strokeWidth = 3.dp, trackColor = MaterialTheme.colorScheme.surfaceContainerHigh)
+                        Text(
+                            "Le chef cherche " + when (refilling.first()) {
+                                MealGroup.ENTREES -> "une autre entrée…"
+                                MealGroup.PLATS -> "un autre plat…"
+                                MealGroup.DESSERTS -> "un autre dessert…"
+                            },
+                            style = MaterialTheme.typography.titleSmall,
+                            modifier = Modifier.padding(top = 16.dp),
+                        )
+                    }
+                }
+            } else Unit
         }
         Row(
             Modifier.fillMaxWidth().padding(top = 14.dp),
