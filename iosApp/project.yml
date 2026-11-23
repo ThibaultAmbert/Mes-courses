@@ -49,6 +49,12 @@ targets:
     info:
       path: Sources/Info.plist
       properties:
+        CFBundleIdentifier: $(PRODUCT_BUNDLE_IDENTIFIER)
+        CFBundleExecutable: $(EXECUTABLE_NAME)
+        CFBundleName: $(PRODUCT_NAME)
+        CFBundleInfoDictionaryVersion: "6.0"
+        CFBundleDevelopmentRegion: fr
+        CFBundlePackageType: APPL
         CFBundleDisplayName: Mes courses
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
@@ -77,6 +83,12 @@ targets:
     info:
       path: ShareExtension/Info.plist
       properties:
+        CFBundleIdentifier: $(PRODUCT_BUNDLE_IDENTIFIER)
+        CFBundleExecutable: $(EXECUTABLE_NAME)
+        CFBundleName: $(PRODUCT_NAME)
+        CFBundleInfoDictionaryVersion: "6.0"
+        CFBundleDevelopmentRegion: fr
+        CFBundlePackageType: XPC!
         CFBundleDisplayName: Mes courses
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
