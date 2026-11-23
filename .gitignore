@@ -13,3 +13,8 @@ captures/
 app/src/main/assets/catalog/
 **/.kotlin/
 __pycache__/
+# iOS : projet généré par XcodeGen et sorties de build
+iosApp/*.xcodeproj/
+iosApp/build/
+iosApp/Sources/Info.plist
+iosApp/ShareExtension/Info.plist

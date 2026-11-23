@@ -1,12 +1,12 @@
-name: Core iOS
+name: App iOS
 
-# Portage iOS : vérifie que la logique métier partagée (module core, Kotlin Multiplatform)
-# compile pour iPhone et passe ses tests sur le simulateur iOS.
+# Portage iOS : tests du code partagé, compilation de l'app iOS (Compose Multiplatform + Swift), test de démarrage
+# dans le simulateur (capture d'écran en artefact) et .ipa non signé à installer avec Sideloadly.
 on:
   push:
-    paths: ["core/**", "gradle/**", ".github/workflows/ios.yml"]
+    paths: ["core/**", "shared/**", "iosApp/**", "gradle/**", "*.gradle.kts", ".github/workflows/ios.yml"]
   pull_request:
-    paths: ["core/**", "gradle/**", ".github/workflows/ios.yml"]
+    paths: ["core/**", "shared/**", "iosApp/**", "gradle/**", "*.gradle.kts", ".github/workflows/ios.yml"]
   workflow_dispatch:
 
 concurrency:
@@ -17,9 +17,9 @@ permissions:
   contents: read
 
 jobs:
-  core-ios:
-    runs-on: macos-latest
-    timeout-minutes: 45
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
@@ -30,15 +30,75 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Compilation iOS (iPhone et simulateur)
-        run: ./gradlew -p core compileKotlinIosArm64 compileKotlinIosSimulatorArm64 --stacktrace
+      - name: Xcode le plus récent
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)"
+          xcodebuild -version
 
-      - name: Tests (JVM et simulateur iOS)
+      - name: Tests du module core (JVM et simulateur iOS)
         run: ./gradlew -p core allTests --stacktrace
 
-      - name: Rapport de tests
+      - name: Compilation Kotlin du module shared (iPhone et simulateur)
+        run: ./gradlew :shared:compileKotlinIosArm64 :shared:compileKotlinIosSimulatorArm64 --stacktrace
+
+      - name: Projet Xcode (XcodeGen)
+        run: |
+          brew install xcodegen
+          cd iosApp && xcodegen generate
+
+      - name: App pour le simulateur
+        run: |
+          xcodebuild -project iosApp/MesCourses.xcodeproj -scheme MesCourses -configuration Debug \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build/sim \
+            -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO build | tail -n 60
+          test -d build/sim/Build/Products/Debug-iphonesimulator/MesCourses.app
+
+      - name: Démarrage dans le simulateur
+        run: |
+          DEVICE=$(xcrun simctl list devices available -j | python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; print(next(x['udid'] for k,v in d.items() if 'iOS' in k for x in v if x['name'].startswith('iPhone')))")
+          xcrun simctl boot "$DEVICE"
+          xcrun simctl bootstatus "$DEVICE" -b
+          xcrun simctl install "$DEVICE" build/sim/Build/Products/Debug-iphonesimulator/MesCourses.app
+          xcrun simctl launch "$DEVICE" fr.mescourses.app
+          sleep 40
+          mkdir -p captures
+          xcrun simctl io "$DEVICE" screenshot captures/demarrage.png
+          # L'app doit toujours tourner (pas de plantage au démarrage).
+          xcrun simctl spawn "$DEVICE" launchctl list | grep -q "UIKitApplication:fr.mescourses.app" || {
+            echo "L'app ne tourne plus : plantage au démarrage ?"
+            xcrun simctl spawn "$DEVICE" log show --last 2m --predicate 'process == "MesCourses"' | tail -n 80
+            exit 1
+          }
+
+      - name: Capture du démarrage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: capture-ios
+          path: captures/
+          if-no-files-found: ignore
+
+      - name: App pour iPhone (.ipa non signé)
+        run: |
+          xcodebuild -project iosApp/MesCourses.xcodeproj -scheme MesCourses -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build/device \
+            -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build | tail -n 60
+          mkdir -p Payload
+          cp -R build/device/Build/Products/Release-iphoneos/MesCourses.app Payload/
+          zip -qry MesCourses.ipa Payload
+
+      - name: Publication de l'.ipa
+        uses: actions/upload-artifact@v4
+        with:
+          name: mes-courses-ipa
+          path: MesCourses.ipa
+          retention-days: 30
+
+      - name: Rapports de tests
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: rapports-ios
-          path: core/build/reports/tests/
+          path: |
+            core/build/reports/tests/
+            shared/build/reports/
