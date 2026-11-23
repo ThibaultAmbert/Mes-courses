@@ -41,8 +41,6 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 /** Une ligne du journal de debug (jamais de cookies ni de contenu). */
-data class BridgeLog(val method: String, val route: String, val status: Int?, val millis: Long)
-
 /**
  * Exécute les requêtes d'une enseigne par `fetch()` DANS une WebView connectée (1×1 px, attachée à l'activité).
  * Les cookies et l'empreinte de vrai navigateur passent les anti-robots (Cloudflare, DataDome), ce qu'un client
@@ -50,13 +48,13 @@ data class BridgeLog(val method: String, val route: String, val status: Int?, va
  */
 class RetailerWebViewBridge(
     private val appContext: Context,
-    val site: RetailerSite,
+    override val site: RetailerSite,
     private val uaWithoutWv: () -> Boolean,
     /** Leclerc : navigateur annoncé (« ordinateur », « mobile » ou « webview »). */
     private val leclercUaMode: () -> String = { "ordinateur" },
     /** Requêtes faites par la page elle-même (URL + en-têtes), pour relever des jetons (Auchan). Jamais journalisé. */
     private val onRequestSeen: ((url: String, headers: Map<String, String>) -> Unit)? = null,
-) : HttpTransport {
+) : RetailerBridge {
 
     private val who = site.retailer.label
     private val debug = (appContext.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
@@ -74,9 +72,9 @@ class RetailerWebViewBridge(
     @Volatile private var lastRequestAt = 0L
 
     private val _log = MutableStateFlow<List<BridgeLog>>(emptyList())
-    val log: StateFlow<List<BridgeLog>> = _log
+    override val log: StateFlow<List<BridgeLog>> = _log
 
-    val isAttached: Boolean get() = webView != null
+    override val isAttached: Boolean get() = webView != null
 
     /** Configuration commune aux WebViews des enseignes (invisible et visible). */
     @SuppressLint("SetJavaScriptEnabled")
@@ -130,8 +128,9 @@ class RetailerWebViewBridge(
     }
 
     /** Applique le User-Agent courant à la WebView invisible et recharge sa page (après un changement de réglage). */
-    suspend fun refreshUserAgent() = withContext(Dispatchers.Main) {
+    override suspend fun refreshUserAgent(): Unit = withContext(Dispatchers.Main) {
         webView?.let { it.settings.userAgentString = userAgent(); it.reload() }
+        Unit
     }
 
     /** Relève les requêtes de la page (Auchan : jetons de l'API panier). À appeler aussi depuis la WebView visible. */
@@ -165,7 +164,7 @@ class RetailerWebViewBridge(
         webView = view
         val start = site.parking()
         target = start
-        fr.mescourses.app.ui.retail.loadWhenSized(view, start)
+        fr.mescourses.app.ui.platform.loadWhenSized(view, start)
     }
 
     fun detach(view: WebView) {
@@ -192,10 +191,12 @@ class RetailerWebViewBridge(
     }
 
     /** Recharge la page de stationnement (après une connexion faite dans la WebView visible). */
-    suspend fun reload() = load(site.parking())
+    override suspend fun reload() {
+        load(site.parking())
+    }
 
     /** Recharge et attend la fin du chargement (au plus 20 s), pour que la vérification suivante voie les nouveaux cookies. */
-    suspend fun reloadAndWait() = serial.withLock {
+    override suspend fun reloadAndWait(): Unit = serial.withLock {
         if (webView == null) return@withLock
         val page = site.parking()
         coroutineScope {
@@ -209,7 +210,7 @@ class RetailerWebViewBridge(
      * Charge `url` et attend une page qui satisfait `until` (au plus `timeoutMs`) ; renvoie son adresse, ou null.
      * La page de stationnement est rechargée ensuite.
      */
-    suspend fun visit(url: String, timeoutMs: Long = 25_000, until: (String) -> Boolean): String? = serial.withLock {
+    override suspend fun visit(url: String, timeoutMs: Long, until: (String) -> Boolean): String? = serial.withLock {
         if (webView == null) return@withLock null
         val landed = coroutineScope {
             val landing = async { withTimeoutOrNull(timeoutMs) { pageFinished.first(until) } }

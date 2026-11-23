@@ -24,21 +24,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
-
-/** État de la mise à jour de l'appli, affiché dans les Réglages. */
-data class UpdateStatus(
-    val installed: Long = 0,
-    /** Dernière version publiée (numéro de build) ; null = pas encore cherchée. */
-    val available: Long? = null,
-    val working: String? = null,
-    /** Avancement du téléchargement de l'APK (0..1) ; null = inconnu. */
-    val progress: Float? = null,
-    val message: String? = null,
-    /** APK téléchargé, prêt à installer. */
-    val ready: File? = null,
-) {
-    val updateAvailable get() = available != null && available > installed
-}
+import fr.mescourses.app.platform.AppUpdates
+import fr.mescourses.app.platform.UpdateStatus
 
 /**
  * Met l'appli à jour depuis elle-même : la CI publie l'APK dans la release « appli » (le corps de la release contient
@@ -49,22 +36,22 @@ class AppUpdater(
     private val context: Context,
     private val scope: CoroutineScope,
     private val http: HttpClient,
-) {
-    val status = MutableStateFlow(UpdateStatus(installed = installedVersion()))
+) : AppUpdates {
+    override val status = MutableStateFlow(UpdateStatus(installed = installedVersion()))
     private val json = Json { ignoreUnknownKeys = true }
 
     @Serializable private data class Asset(val name: String = "", val browser_download_url: String = "")
     @Serializable private data class Release(val body: String? = null, val assets: List<Asset> = emptyList())
 
     /** Au lancement : cherche une nouvelle version (hors données mobiles), sans rien télécharger. */
-    fun start() {
+    override fun start() {
         scope.launch(Dispatchers.IO) {
             delay(20_000)
             if (!metered()) check()
         }
     }
 
-    fun checkNow() {
+    override fun checkNow() {
         scope.launch(Dispatchers.IO) { check() }
     }
 
@@ -86,10 +73,10 @@ class AppUpdater(
     }
 
     /** Télécharge l'APK puis lance l'installation. */
-    fun install() {
+    override fun install() {
         scope.launch(Dispatchers.IO) {
             if (status.value.working != null) return@launch
-            val ready = status.value.ready
+            val ready = status.value.ready?.let(::File)
             if (ready != null && ready.exists()) { status.value = status.value.copy(message = launchInstaller(ready)); return@launch }
             status.value = status.value.copy(working = "Téléchargement…")
             val result = try {
@@ -99,7 +86,7 @@ class AppUpdater(
                 val dir = File(context.cacheDir, "update").apply { deleteRecursively(); mkdirs() }
                 val file = File(dir, "mes-courses.apk")
                 download(url, file)
-                status.value = status.value.copy(available = version, ready = file)
+                status.value = status.value.copy(available = version, ready = file.absolutePath)
                 launchInstaller(file)
             } catch (e: CancellationException) {
                 throw e

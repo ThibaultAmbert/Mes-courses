@@ -55,7 +55,6 @@ kotlin {
             implementation(libs.androidx.activity.compose)
             implementation(libs.androidx.datastore.preferences)
             implementation(libs.androidx.room.ktx)
-            implementation(libs.coil.compose)
             implementation(libs.coroutines.android)
             implementation(libs.ktor.client.cio)
             implementation(compose.preview)

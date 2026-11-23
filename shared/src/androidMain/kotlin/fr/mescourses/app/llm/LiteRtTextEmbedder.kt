@@ -27,7 +27,7 @@ import java.io.File
 class LiteRtTextEmbedder(
     context: Context,
     private val modelFile: File = File(context.filesDir, "embedder/embeddinggemma-2-740m.litertlm"),
-) : TextEmbedder {
+) : fr.mescourses.app.platform.AppTextEmbedder {
 
     private val cacheDir: String = context.cacheDir.path
     private val mutex = Mutex()
@@ -44,7 +44,7 @@ class LiteRtTextEmbedder(
     private val options = EmbeddingOptions(normalize = true, outputSize = Int8Vectors.DIM)
 
     /** Le moteur est chargé en mémoire. */
-    val loaded: Boolean get() = engine != null
+    override val loaded: Boolean get() = engine != null
 
     /** Fichier du modèle présent et non vide (sans le charger). */
     override suspend fun available(): Boolean = withContext(Dispatchers.IO) { modelFile.isFile && modelFile.length() > 0L }
@@ -110,7 +110,7 @@ class LiteRtTextEmbedder(
      * Ferme le moteur et remet l'état à zéro (y compris un échec de chargement). Ne bloque pas : si un calcul est en
      * cours, la libération a lieu dès qu'il se termine.
      */
-    fun release() {
+    override fun release() {
         releasePending = true
         releaseIfPending()
     }

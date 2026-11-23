@@ -9,7 +9,7 @@ class MesCoursesApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        container = AppContainer(this)
+        container = AppContainer(fr.mescourses.app.platform.AndroidPlatform(this))
     }
 
     /**
