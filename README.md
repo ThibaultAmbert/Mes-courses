@@ -117,7 +117,11 @@ L'app libère d'elle-même le modèle (plusieurs Go) quand le système manque de
 core/    Logique métier Kotlin Multiplatform (Android + iOS), testée (ingrédients, fusion de liste, extraction de recettes
          schema.org, outils du LLM, clients Carrefour / Leclerc / Auchan, préparation du panier, comparaison des prix).
          Code commun dans src/commonMain ; seuls les accents (NFD) et les journaux ont une version JVM / iOS.
-app/     Application Android (Jetpack Compose, Room, DataStore, LiteRT-LM)
+shared/  Application commune Android + iOS (Kotlin Multiplatform) : écrans Compose Multiplatform, ViewModels,
+         Room KMP, DataStore, conversation avec le LLM, sessions des drives. Ce qui dépend du système passe par
+         l'interface Platform (androidMain : WebView, LiteRT-LM… ; iosMain : WKWebView, NWPathMonitor…).
+app/     Coquille Android (MainActivity, service du chef, manifeste)
+iosApp/  Coquille iOS (SwiftUI) : projet XcodeGen, moteur LLM en Swift (LiteRT-LM), extension « Partager »
 docs/    Routes des enseignes documentées
 ```
 
@@ -131,10 +135,29 @@ docs/    Routes des enseignes documentées
    « Importer un fichier ».
 4. Réglages → **Mes drives** : choisis ton enseigne préférée, connecte-toi et choisis ton drive (pour chaque enseigne à comparer).
 
+## Installer l'application sur iPhone (sans Mac)
+
+1. Onglet **Actions** du dépôt → dernier « App iOS » réussi → artefact **mes-courses-ipa** (fichier `MesCourses.ipa`).
+2. Sur un PC Windows ou Mac, installe [Sideloadly](https://sideloadly.io), branche l'iPhone, glisse l'`.ipa` et
+   connecte-toi avec ton identifiant Apple : Sideloadly signe l'app pour ton téléphone.
+3. Sur l'iPhone : **Réglages › Général › VPN et gestion de l'appareil** → faire confiance à ton identifiant ;
+   iOS 16+ demande aussi d'activer le **mode développeur** (Réglages › Confidentialité et sécurité).
+4. Avec un identifiant Apple gratuit, l'app doit être réinstallée **tous les 7 jours** (les données sont gardées) ;
+   avec un compte Apple Developer (99 €/an), une fois par an.
+5. Réglages de l'app → télécharge **Gemma 4 E2B** (conseillé sur iPhone : E4B dépasse souvent la mémoire permise).
+
+Différences avec Android : le chef s'arrête si l'on quitte l'app plus de quelques dizaines de secondes (iOS n'a pas de
+service au premier plan) ; pas de mise à jour depuis l'app ; le bouton « Ouvrir l'app de l'enseigne » est masqué ;
+les drives passent par Safari (WebKit) : Leclerc « ordinateur » s'annonce comme Safari sur Mac. Le moteur LiteRT-LM
+pour iOS est encore en « early preview » chez Google, et son API Swift n'accepte pas les outils de l'app : le
+modèle les appelle en écrivant un petit JSON, que l'app exécute.
+
 ## Développement
 
 ```bash
 ./gradlew -p core test          # tests de la logique métier sur la JVM (alias de jvmTest, aucun SDK requis)
 ./gradlew -p core compileKotlinIosSimulatorArm64   # vérifie que core compile pour iOS (marche aussi sous Linux)
 ./gradlew :app:assembleDebug    # nécessite le SDK Android (ANDROID_HOME)
+./gradlew :shared:compileKotlinIosSimulatorArm64   # code iOS (compile aussi sous Linux)
+cd iosApp && xcodegen generate && open MesCourses.xcodeproj   # app iOS (Mac + Xcode)
 ```
