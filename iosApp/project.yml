@@ -19,6 +19,8 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
     DEVELOPMENT_TEAM: ""
     CODE_SIGN_STYLE: Automatic
+    # Simulateur Apple Silicon seulement : le framework Kotlin (iosSimulatorArm64) et LiteRT-LM n'ont pas de x86_64.
+    EXCLUDED_ARCHS[sdk=iphonesimulator*]: x86_64
 
 targets:
   MesCourses:

@@ -48,9 +48,10 @@ jobs:
 
       - name: App pour le simulateur
         run: |
+          set -o pipefail
           xcodebuild -project iosApp/MesCourses.xcodeproj -scheme MesCourses -configuration Debug \
             -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build/sim \
-            -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO build | tail -n 60
+            -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -n 150
           test -d build/sim/Build/Products/Debug-iphonesimulator/MesCourses.app
 
       - name: Démarrage dans le simulateur
@@ -80,9 +81,10 @@ jobs:
 
       - name: App pour iPhone (.ipa non signé)
         run: |
+          set -o pipefail
           xcodebuild -project iosApp/MesCourses.xcodeproj -scheme MesCourses -configuration Release \
             -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build/device \
-            -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build | tail -n 60
+            -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build 2>&1 | tail -n 150
           mkdir -p Payload
           cp -R build/device/Build/Products/Release-iphoneos/MesCourses.app Payload/
           zip -qry MesCourses.ipa Payload
