@@ -57,13 +57,13 @@ interface NativeLlm {
      * Nouvelle conversation (sans outils : leurs appels sont pilotés par Kotlin, voir [PromptToolLoop]).
      * [initialJson] : tableau `[{"role":"user"|"model","text":…}]` ; [maxOutputTokens] ≤ 0 = défaut du moteur.
      */
-    fun newConversation(systemPrompt: String, initialJson: String, maxOutputTokens: Int)
+    fun startConversation(systemPrompt: String, initialJson: String, maxOutputTokens: Int)
 
     fun hasConversation(): Boolean
     fun send(message: String, listener: NativeChatListener)
 
     /** Tokens occupés dans la conversation (-1 si inconnu). */
-    fun tokenCount(): Int
+    fun usedTokens(): Int
     fun cancel()
 
     /** Génération ponctuelle ; [jsonSchema] vide = texte libre. */
@@ -84,7 +84,7 @@ interface NativeEmbedder {
 
     /** Vecteurs normalisés de dimension [dim] pour chaque texte. */
     fun embed(texts: List<String>, dim: Int, callback: NativeVectorsResult)
-    fun release()
+    fun unload()
 }
 
 /** [LlmEngine] au-dessus du moteur Swift. */
@@ -126,7 +126,7 @@ class IosLlmEngine(private val native: NativeLlm, private val cacheDir: String) 
         }.toString()
         this.tools = tools.associateBy { it.name }
         // L'API Swift de LiteRT-LM n'accepte que des outils déclarés en Swift : on décrit ceux de l'app dans le prompt.
-        native.newConversation(PromptToolLoop.systemPrompt(systemPrompt, tools), initialJson, maxOutputTokens ?: 0)
+        native.startConversation(PromptToolLoop.systemPrompt(systemPrompt, tools), initialJson, maxOutputTokens ?: 0)
     }
 
     /** Un tour brut du moteur Swift : les morceaux de texte, puis la fin. */
@@ -143,7 +143,7 @@ class IosLlmEngine(private val native: NativeLlm, private val cacheDir: String) 
 
     override fun hasConversation() = native.hasConversation()
 
-    override fun tokenCount(): Int? = native.tokenCount().takeIf { it >= 0 }
+    override fun tokenCount(): Int? = native.usedTokens().takeIf { it >= 0 }
 
     override fun cancel() = native.cancel()
 
@@ -216,7 +216,7 @@ class IosTextEmbedder(private val native: NativeEmbedder, private val modelPath:
     override fun release() {
         generation++
         loadFailed = false
-        native.release()
+        native.unload()
     }
 
     private companion object {

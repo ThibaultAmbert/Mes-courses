@@ -39,7 +39,7 @@ final class LiteRtLlm: NSObject, NativeLlm, @unchecked Sendable {
 
     func isLoaded() -> Bool { locked { engine != nil } }
 
-    func newConversation(systemPrompt: String, initialJson: String, maxOutputTokens: Int32) {
+    func startConversation(systemPrompt: String, initialJson: String, maxOutputTokens: Int32) {
         var initial: [Message] = []
         if let data = initialJson.data(using: .utf8),
            let list = try? JSONSerialization.jsonObject(with: data) as? [[String: String]] {
@@ -89,7 +89,7 @@ final class LiteRtLlm: NSObject, NativeLlm, @unchecked Sendable {
         locked { task = t }
     }
 
-    func tokenCount() -> Int32 {
+    func usedTokens() -> Int32 {
         guard let c = locked({ conversation }), let n = try? c.getTokenCount() else { return -1 }
         return Int32(n)
     }
@@ -175,7 +175,7 @@ final class LiteRtEmbedder: NSObject, NativeEmbedder, @unchecked Sendable {
         }
     }
 
-    func release() {
+    func unload() {
         let e = locked { () -> EmbeddingEngine? in let current = engine; engine = nil; return current }
         if let e { Task { await e.close() } }
     }
