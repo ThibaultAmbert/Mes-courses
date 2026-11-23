@@ -79,7 +79,7 @@ l'app lit aussi le drive dans l'adresse de la page.
 
 ## 5. À capturer sur le téléphone
 
-1. Une page de recherche réelle (vérifier les objets `iIdProduit`) → comparer avec `core/src/test/resources/leclerc/search.html`.
+1. Une page de recherche réelle (vérifier les objets `iIdProduit`) → comparer avec `core/src/jvmTest/resources/leclerc/search.html`.
 2. La réponse d'un ajout au panier sans `objContexteProvenanceArticle`.
 3. La requête envoyée quand on change de drive sur le site.
 4. La route des créneaux.

@@ -75,7 +75,6 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import java.time.LocalDate
 
 /** Articles à envoyer au panier, posés par la fiche recette ou la liste de courses. */
 data class PendingCart(val label: String, val items: List<ShoppingItem>)
@@ -328,7 +327,7 @@ class AppContainer(context: Context) {
 
     /** Prompt du menu : choix parmi les candidates des sites, ou invention des plats s'il n'y en a pas. */
     suspend fun menuSystemPrompt(wishes: MenuWishes, adjusting: Boolean = false): PromptBuild {
-        val today = LocalDate.now()
+        val today = fr.mescourses.core.todayLocal()
         val cookbook = recipes.all()
         val pool = candidates.all()
         return if (pool.isEmpty()) PromptBuild(MenuPrompt.system(today, wishes, cookbook, settings.current.preferences), emptyList())

@@ -155,7 +155,7 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
 
     /** Propositions fraîches à passer en revue, une par une (garder / passer), avant le récap. */
     val reviewing = MutableStateFlow(false)
-    val season = fr.mescourses.core.season.Seasonality.forMonth(java.time.LocalDate.now().month)
+    val season = fr.mescourses.core.season.Seasonality.forMonth(fr.mescourses.core.todayLocal().month)
 
     val dishes: StateFlow<List<MenuDish>> = c.draft.observe().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val week: StateFlow<List<PlannedMeal>> = c.plan.observeAll().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -195,7 +195,7 @@ class MenuViewModel(private val c: AppContainer) : ViewModel() {
 
     /** Saison et composition du brouillon. */
     val insights: StateFlow<MenuInsights> = c.draft.observe()
-        .map { MenuInsights.of(it.filter { d -> d.isMain }, java.time.LocalDate.now().month) }
+        .map { MenuInsights.of(it.filter { d -> d.isMain }, fr.mescourses.core.todayLocal().month) }
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.Eagerly, MenuInsights(0, emptyList(), emptyList(), emptyMap()))
 

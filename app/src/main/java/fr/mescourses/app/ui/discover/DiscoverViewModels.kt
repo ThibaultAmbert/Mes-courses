@@ -108,7 +108,7 @@ class DiscoverViewModel(private val c: AppContainer) : ViewModel() {
 
     private fun newSeed() = kotlin.random.Random.nextInt(1, 1_000_000)
 
-    val seasonIdeas: List<String> = Seasonality.highlights(LocalDate.now().month).take(10)
+    val seasonIdeas: List<String> = Seasonality.highlights(fr.mescourses.core.todayLocal().month).take(10)
     val quickIdeas: List<QuickIdea> = RecipeFilters.quickIdeas
     val searchableSites: List<RecipeSite> = RecipeSites.searchable
     /** Tous les sites connus, proposés dans les filtres (catalogue local ; recherche en ligne pour ceux qui l'ont). */

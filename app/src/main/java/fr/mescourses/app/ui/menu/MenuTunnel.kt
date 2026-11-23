@@ -532,7 +532,7 @@ internal fun SwipeScreen(
 
 @Composable
 private fun SwipeCard(dish: MenuDish, dx: () -> Float) {
-    val season = remember(dish) { Seasonality.report(listOf(dish.title) + dish.mainIngredients, java.time.LocalDate.now().month) }
+    val season = remember(dish) { Seasonality.report(listOf(dish.title) + dish.mainIngredients, fr.mescourses.core.todayLocal().month) }
     Column {
         Box(Modifier.fillMaxWidth().weight(1f)) {
             DishArt(dish.title, dish.mainIngredients, imageUrl = dish.imageUrl, modifier = Modifier.fillMaxSize(), emojiSize = 72)

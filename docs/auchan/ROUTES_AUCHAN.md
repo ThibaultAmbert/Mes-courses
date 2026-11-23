@@ -62,6 +62,6 @@ Page HTML rendue côté serveur. Une fiche par produit : `article[data-current-o
 ## 4. À capturer sur le téléphone
 
 1. Vérifier dans l'écran de debug que `authorization`, `client-id`, `x-gravitee-api-key` et `consentId` sont relevés.
-2. Une page de recherche réelle → comparer avec `core/src/test/resources/auchan/search.html`.
+2. Une page de recherche réelle → comparer avec `core/src/jvmTest/resources/auchan/search.html`.
 3. La requête envoyée quand on choisit un drive sur le site.
 4. La route des créneaux.

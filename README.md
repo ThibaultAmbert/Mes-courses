@@ -114,8 +114,9 @@ L'app libère d'elle-même le modèle (plusieurs Go) quand le système manque de
 ## Structure
 
 ```
-core/    Logique métier Kotlin/JVM pur, testée (ingrédients, fusion de liste, extraction de recettes
-         schema.org, outils du LLM, clients Carrefour / Leclerc / Auchan, préparation du panier, comparaison des prix)
+core/    Logique métier Kotlin Multiplatform (Android + iOS), testée (ingrédients, fusion de liste, extraction de recettes
+         schema.org, outils du LLM, clients Carrefour / Leclerc / Auchan, préparation du panier, comparaison des prix).
+         Code commun dans src/commonMain ; seuls les accents (NFD) et les journaux ont une version JVM / iOS.
 app/     Application Android (Jetpack Compose, Room, DataStore, LiteRT-LM)
 docs/    Routes des enseignes documentées
 ```
@@ -133,6 +134,7 @@ docs/    Routes des enseignes documentées
 ## Développement
 
 ```bash
-./gradlew -p core test          # tests de la logique métier (aucun SDK Android requis)
+./gradlew -p core test          # tests de la logique métier sur la JVM (alias de jvmTest, aucun SDK requis)
+./gradlew -p core compileKotlinIosSimulatorArm64   # vérifie que core compile pour iOS (marche aussi sous Linux)
 ./gradlew :app:assembleDebug    # nécessite le SDK Android (ANDROID_HOME)
 ```
