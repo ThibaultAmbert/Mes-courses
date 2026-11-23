@@ -18,7 +18,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import fr.mescourses.app.R
+import fr.mescourses.shared.R
 import fr.mescourses.app.ui.theme.Cuisine
 
 /** Logos des sites, embarqués dans l'appli (aucun réseau) ; sans logo, on affiche les initiales du site. */

@@ -18,4 +18,5 @@ rootProject.name = "MesCourses"
 
 // Logique métier en Kotlin/JVM pur (testable sans SDK Android) : ./gradlew -p core test
 includeBuild("core")
+include(":shared")
 include(":app")

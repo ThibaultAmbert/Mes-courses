@@ -1,16 +1,18 @@
 package fr.mescourses.app.ui.common
 
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import fr.mescourses.app.AppContainer
-import fr.mescourses.app.MesCoursesApp
+
+/** Conteneur de l'application, fourni par l'écran racine (Android : MainActivity ; iOS : MainViewController). */
+val LocalAppContainer = staticCompositionLocalOf<AppContainer> { error("AppContainer non fourni") }
 
 @Composable
-fun appContainer(): AppContainer = (LocalContext.current.applicationContext as MesCoursesApp).container
+fun appContainer(): AppContainer = LocalAppContainer.current
 
 /** Crée un ViewModel à partir du conteneur de l'application. */
 @Composable

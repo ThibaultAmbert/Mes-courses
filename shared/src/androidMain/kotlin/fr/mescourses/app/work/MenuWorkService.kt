@@ -15,7 +15,6 @@ import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
-import fr.mescourses.app.MainActivity
 
 /**
  * Service au premier plan pendant que le chef travaille (proposition, validation du menu) :
@@ -73,7 +72,7 @@ class MenuWorkService : Service() {
             cachedOpenIntent?.let { return it }
             val app = context.applicationContext
             val launch = app.packageManager.getLaunchIntentForPackage(app.packageName)
-                ?: Intent(app, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                ?: Intent().setClassName(app, "fr.mescourses.app.MainActivity").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             return PendingIntent.getActivity(
                 app, 0, launch, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             ).also { cachedOpenIntent = it }

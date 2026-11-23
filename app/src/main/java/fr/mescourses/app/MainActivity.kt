@@ -7,10 +7,12 @@ import androidx.activity.compose.setContent
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import android.graphics.Color
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
 import fr.mescourses.app.ui.AppRoot
+import fr.mescourses.app.ui.common.LocalAppContainer
 import fr.mescourses.app.ui.theme.MesCoursesTheme
 import fr.mescourses.app.ui.theme.darkFor
 
@@ -24,7 +26,8 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         // Après une recréation (rotation, retour de l'arrière-plan), le partage a déjà été traité.
         if (savedInstanceState == null) handle(intent)
-        val settings = (application as MesCoursesApp).container.settings
+        val container = (application as MesCoursesApp).container
+        val settings = container.settings
         setContent {
             val mode = settings.state.collectAsState().value.theme
             val dark = darkFor(mode)
@@ -36,8 +39,10 @@ class MainActivity : ComponentActivity() {
                 )
                 onDispose {}
             }
-            MesCoursesTheme(dark = dark) {
-                AppRoot(sharedUrl = sharedUrl.value, onSharedUrlConsumed = { sharedUrl.value = null })
+            CompositionLocalProvider(LocalAppContainer provides container) {
+                MesCoursesTheme(dark = dark) {
+                    AppRoot(sharedUrl = sharedUrl.value, onSharedUrlConsumed = { sharedUrl.value = null })
+                }
             }
         }
     }
